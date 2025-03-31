@@ -15,6 +15,40 @@ FLNDR is a TypeScript-based wrapper for the LND REST API, designed to simplify L
 npm install flndr
 ```
 
+## Configuration
+
+FLNDR can be configured using environment variables for secure access to your LND node. Create a `.env` file in your project root with the following variables:
+
+### Option 1: Using File Paths
+
+```
+LND_REST_API_URL=https://your-lnd-node:8080
+LND_MACAROON_PATH=/path/to/your/admin.macaroon
+LND_TLS_CERT_PATH=/path/to/your/tls.cert
+```
+
+### Option 2: Using Raw Values
+
+```
+LND_REST_API_URL=https://your-lnd-node:8080
+LND_MACAROON=0201036c6e6402f801030a1022a913... # Hex-encoded macaroon
+LND_TLS_CERT=-----BEGIN CERTIFICATE-----\nMIIC... # Raw certificate content
+```
+
+You can mix and match these approaches as needed for your environment.
+
+Alternatively, you can directly provide the configuration when instantiating the client:
+
+```typescript
+import { LndClient } from 'flndr';
+
+const lndClient = new LndClient({
+  baseUrl: 'https://your-lnd-node:8080',
+  macaroon: 'your-hex-encoded-macaroon',
+  tlsCert: 'your-tls-cert-content' // Optional
+});
+```
+
 ## Quick Start
 
 ```typescript
@@ -40,123 +74,93 @@ async function getNodeInfo() {
 getNodeInfo();
 ```
 
+## Examples
+
+The SDK includes a variety of examples that demonstrate how to interact with an LND node through the REST API.
+
+### Setting up for examples
+
+1. Copy the `.env.example` file to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Update the `.env` file with your LND node's connection details:
+   ```
+   LND_REST_API_URL=https://your-lnd-node:8080
+   LND_MACAROON_PATH=/path/to/your/admin.macaroon
+   LND_TLS_CERT_PATH=/path/to/your/tls.cert
+   ```
+
+### Running examples
+
+You can run all examples with:
+```bash
+npm run examples
+```
+
+Individual examples can be found in the `src/examples/` directory and can be run directly with ts-node:
+```bash
+npx ts-node src/examples/info/getInfo.ts
+```
+
+## Tests
+
+The SDK includes comprehensive tests for all implemented methods. Run the tests with:
+
+```bash
+npm test
+```
+
 ## API Documentation
 
-### Connection
+### LndClient
 
-To create a new LND client:
+The main class for interacting with the LND REST API.
 
 ```typescript
-const lnd = new LndClient({
-  baseUrl: 'https://your-lnd-node:8080', // LND REST API endpoint
-  macaroon: 'hex-encoded-macaroon',      // Admin macaroon in HEX format
-  tlsCert: 'optional-tls-cert',          // Optional TLS certificate
+import { LndClient } from 'flndr';
+
+// Initialize with direct configuration
+const lndClient = new LndClient({
+  baseUrl: 'https://your-lnd-node:8080',
+  macaroon: 'your-hex-encoded-macaroon',
+  tlsCert: 'your-tls-cert-content' // Optional
 });
+
+// Or initialize using environment variables
+import { getLndConfigWithFallback } from 'flndr';
+const config = getLndConfigWithFallback();
+const lndClient = new LndClient(config);
 ```
 
-### Info Methods
+#### Info Methods
 
-#### getInfo()
+- **getInfo()**: Get basic information about the LND node
+- **channelBalance()**: Get information about channel balances
 
-Returns basic information about the connected LND node.
+#### Receiving Methods
 
-```typescript
-const info = await lnd.getInfo();
-```
+- **addInvoice(options)**: Create a new Lightning invoice
+- **lookupInvoiceV2(rHash)**: Look up an invoice by its payment hash
+- **listInvoices(options)**: List invoices with filtering and pagination
 
-Response:
-```typescript
-{
-  version: string;         // LND version
-  identity_pubkey: string; // Node public key
-  alias: string;           // Node alias
-  num_active_channels: number; // Number of active channels
-  num_peers: number;       // Number of connected peers
-  block_height: number;    // Current block height
-  // ... other fields
-}
-```
+#### Payment Methods
 
-#### channelBalance()
+- **listPayments(options)**: List outgoing payments with filtering and pagination
 
-Returns the sum of funds held in all open channels.
+### Configuration Utility
+
+You can use the configuration utility to manage LND connection details:
 
 ```typescript
-const balance = await lnd.channelBalance();
-```
+import { getLndConfig, getLndConfigWithFallback } from 'flndr';
 
-Response:
-```typescript
-{
-  balance: string;         // Total balance in satoshis
-  pending_open_balance: string;  // Balance in pending channels
-  local_balance: {
-    sat: string;           // Local balance in satoshis
-    msat: string;          // Local balance in millisatoshis
-  };
-  remote_balance: {
-    sat: string;           // Remote balance in satoshis
-    msat: string;          // Remote balance in millisatoshis
-  };
-  // ... other fields
-}
-```
+// Get configuration from environment variables (throws error if required variables are missing)
+const strictConfig = getLndConfig();
 
-### Receiving Methods
-
-#### addInvoice(request)
-
-Creates a new Lightning invoice.
-
-```typescript
-const invoiceRequest = {
-  memo: 'Payment for service',
-  value: '10000', // 10,000 satoshis
-  expiry: '3600', // 1 hour
-};
-
-const invoice = await lnd.addInvoice(invoiceRequest);
-```
-
-Response:
-```typescript
-{
-  r_hash: string;          // Payment hash
-  payment_request: string; // BOLT11 encoded payment request
-  add_index: string;       // Invoice index
-  payment_addr: string;    // Payment address
-}
-```
-
-#### lookupInvoiceV2(r_hash_str)
-
-Retrieves detailed information about a specific invoice by payment hash.
-
-```typescript
-const invoice = await lnd.lookupInvoiceV2('payment_hash_string');
-```
-
-Response includes detailed invoice information including state, payment details, and more.
-
-#### listPayments(request)
-
-Returns a paginated list of outgoing payments with detailed status information.
-
-```typescript
-const payments = await lnd.listPayments({
-  max_payments: 10,
-  include_incomplete: true
-});
-```
-
-Response:
-```typescript
-{
-  payments: Payment[];     // Array of payment objects
-  first_index_offset: string;
-  last_index_offset: string;
-  total_num_payments: string;
-}
+// Get configuration with fallbacks for development (warns if variables are missing)
+const devConfig = getLndConfigWithFallback();
 ```
 
 ## Implemented Features
@@ -168,13 +172,13 @@ Response:
 ### Receiving
 - ✅ addInvoice
 - ✅ lookupInvoiceV2
+- ✅ listInvoices
 - ✅ listPayments
 
 ### Sending
 - decodePayReq (Coming soon)
 - estimateRouteFee (Coming soon)
 - sendPaymentV2 (Coming soon)
-- listPayments (Already implemented in Receiving section)
 
 ### Monitoring
 - subscribeInvoices (Coming soon)
@@ -184,7 +188,7 @@ Response:
 
 ## License
 
-ISC
+MIT
 
 ## Contributing
 

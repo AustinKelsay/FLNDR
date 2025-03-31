@@ -130,6 +130,21 @@ export interface Invoice {
   is_amp: boolean;
 }
 
+export interface ListInvoicesRequest {
+  pending_only?: boolean;
+  index_offset?: string;
+  num_max_invoices?: number;
+  reversed?: boolean;
+  creation_date_start?: string;
+  creation_date_end?: string;
+}
+
+export interface ListInvoicesResponse {
+  invoices: Invoice[];
+  last_index_offset: string;
+  first_index_offset: string;
+}
+
 export interface ListPaymentsRequest {
   include_incomplete?: boolean;
   index_offset?: string;

@@ -8,7 +8,9 @@ import {
   LookupInvoiceRequest,
   Invoice,
   ListPaymentsRequest,
-  ListPaymentsResponse
+  ListPaymentsResponse,
+  ListInvoicesRequest,
+  ListInvoicesResponse
 } from '../types/lnd';
 
 export class LndClient {
@@ -37,10 +39,9 @@ export class LndClient {
       const response = await this.client.get<GetInfoResponse>('/v1/getinfo');
       return response.data;
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        throw new Error(`Failed to get LND info: ${error.message}`);
-      }
-      throw error;
+      // Wrap the error with our custom message
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get LND info: ${errorMessage}`);
     }
   }
 
@@ -89,6 +90,33 @@ export class LndClient {
     } catch (error) {
       if (axios.isAxiosError(error)) {
         throw new Error(`Failed to lookup invoice: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * List all invoices
+   * @param request Invoice listing parameters
+   * @returns List of invoices
+   */
+  public async listInvoices(request: ListInvoicesRequest = {}): Promise<ListInvoicesResponse> {
+    try {
+      // Convert the request object to URL query parameters
+      const params = new URLSearchParams();
+      if (request.pending_only !== undefined) params.append('pending_only', request.pending_only.toString());
+      if (request.index_offset) params.append('index_offset', request.index_offset);
+      if (request.num_max_invoices) params.append('num_max_invoices', request.num_max_invoices.toString());
+      if (request.reversed !== undefined) params.append('reversed', request.reversed.toString());
+      if (request.creation_date_start) params.append('creation_date_start', request.creation_date_start);
+      if (request.creation_date_end) params.append('creation_date_end', request.creation_date_end);
+
+      const url = `/v1/invoices?${params.toString()}`;
+      const response = await this.client.get<ListInvoicesResponse>(url);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        throw new Error(`Failed to list invoices: ${error.message}`);
       }
       throw error;
     }

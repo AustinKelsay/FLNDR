@@ -9,5 +9,10 @@ export {
   Invoice,
   ListPaymentsRequest,
   ListPaymentsResponse,
+  ListInvoicesRequest,
+  ListInvoicesResponse,
   Payment
 } from './types/lnd'; 
+
+// Export configuration utilities
+export { getLndConfig, getLndConfigWithFallback } from './utils/config'; 
