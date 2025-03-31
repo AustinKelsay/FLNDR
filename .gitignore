@@ -1,0 +1,4 @@
+prompts
+.env
+dist
+node_modules

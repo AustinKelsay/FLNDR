@@ -1,0 +1,28 @@
+{
+  "name": "flndr",
+  "version": "0.1.0",
+  "description": "Fast Lightning Network Devkit for Rookies - Simple LND REST API wrapper",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "lightning",
+    "bitcoin",
+    "lnd",
+    "rest",
+    "api"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^22.13.14",
+    "axios": "^1.8.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}
