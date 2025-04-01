@@ -19,6 +19,11 @@ import listPaymentsExample from './payments/listPayments';
 import sendPaymentExample from './payments/sendPayment';
 import decodePayReqExample from './payments/decodePayReq';
 import estimateRouteFeeExample from './payments/estimateRouteFee';
+// We import but don't automatically run the streaming example
+// since it creates long-running connections
+import { streamingExample } from './monitoring';
+// Import the mocked streaming example
+import mockedStreamingExample from './monitoring/mockedStreamingExample';
 
 /**
  * Run all examples in sequence
@@ -77,6 +82,35 @@ async function runExamples() {
     
     console.log('\n-'.repeat(50));
     await sendPaymentExample();
+    
+    // Monitoring examples
+    console.log('\n\n4️⃣ About Monitoring Examples:');
+    console.log('-'.repeat(50));
+    console.log('The streaming examples create long-running WebSocket connections');
+    console.log('and are designed to be run separately. To run them, use:');
+    console.log('npx ts-node src/examples/monitoring/streamingExample.ts');
+    console.log('\nThese examples demonstrate:');
+    console.log('- Subscribing to all invoices (subscribeInvoices)');
+    console.log('- Tracking a specific invoice (subscribeSingleInvoice)');
+    console.log('- Tracking a specific payment (trackPayment)');
+    console.log('- Tracking all payments (trackPaymentV2)');
+    
+    // Ask if the user wants to run the mocked streaming example
+    console.log('\nWould you like to run the mocked streaming example?');
+    console.log('It simulates WebSocket events without requiring an active LND node.');
+    console.log('Enter "y" and press Enter to run it, or press Enter to skip.');
+    
+    // For simplicity, we'll just run it directly in this example
+    const runMockedExample = process.env.RUN_MOCKED_STREAMING === 'true';
+    
+    if (runMockedExample) {
+      console.log('\nRunning mocked streaming example...\n');
+      await mockedStreamingExample();
+    } else {
+      console.log('\nSkipping mocked streaming example.');
+      console.log('You can run it separately with:');
+      console.log('npx ts-node src/examples/monitoring/mockedStreamingExample.ts');
+    }
     
     console.log('\n='.repeat(50));
     console.log('✅ All examples completed successfully!');

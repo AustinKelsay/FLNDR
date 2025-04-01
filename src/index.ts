@@ -12,7 +12,8 @@ export {
   ListInvoicesRequest,
   ListInvoicesResponse,
   Payment,
-  BitcoinNetwork
+  BitcoinNetwork,
+  PaymentStatus
 } from './types/lnd'; 
 
 // Export configuration utilities

@@ -1,4 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
+import { EventEmitter } from 'events';
+import WebSocket from 'ws';
 import { 
   LndConnectionConfig, 
   GetInfoResponse,
@@ -16,17 +18,45 @@ import {
   RouteFeesRequest,
   RouteFeesResponse,
   SendPaymentRequest,
-  SendPaymentResponse
+  SendPaymentResponse,
+  PaymentStatus
 } from '../types/lnd';
 import { toUrlSafeBase64, fromUrlSafeBase64, hexToUrlSafeBase64, urlSafeBase64ToHex, toUrlSafeBase64Format } from '../utils/base64Utils';
 
-export class LndClient {
+/**
+ * LndStreamingEvents defines the events that can be emitted by LndClient for streaming connections
+ */
+export interface LndStreamingEvents {
+  'open': { url: string, reconnecting?: boolean, attempt?: number, reconnected?: boolean };
+  'error': { url: string, error: Error, message?: string, reconnecting?: boolean };
+  'close': { url: string, code: number, reason: string, reconnecting?: boolean };
+  'invoice': Invoice;
+  'singleInvoice': Invoice;
+  'paymentUpdate': PaymentStatus;
+}
+
+/**
+ * LndClient provides a unified interface for interacting with LND's REST API
+ * It supports both standard REST operations and streaming WebSocket connections
+ */
+export class LndClient extends EventEmitter {
   private readonly client: AxiosInstance;
   private readonly config: LndConnectionConfig;
   private network: BitcoinNetwork;
   private networkDetected: boolean = false;
+  
+  // Streaming-related properties
+  private connections: Map<string, WebSocket> = new Map();
+  private retryIntervals: Map<string, NodeJS.Timeout> = new Map();
+  private retryAttempts: Map<string, number> = new Map();
+  // Default max retry count
+  private readonly defaultMaxRetries: number = 5;
+  // Default retry delay (exponential backoff will be applied)
+  private readonly defaultRetryDelay: number = 1000;
 
   constructor(config: LndConnectionConfig) {
+    super(); // Initialize the EventEmitter
+    
     this.config = config;
     // Set default network to mainnet if not specified
     this.network = config.network || 'mainnet';
@@ -39,6 +69,51 @@ export class LndClient {
       },
       httpsAgent: config.tlsCert ? undefined : undefined, // TLS implementation can be added here
     });
+  }
+
+  /**
+   * Register a listener for the open event
+   * @param event Event name
+   * @param listener The callback function
+   */
+  public on(event: 'open', listener: (data: LndStreamingEvents['open']) => void): this;
+  /**
+   * Register a listener for the error event
+   * @param event Event name
+   * @param listener The callback function
+   */
+  public on(event: 'error', listener: (data: LndStreamingEvents['error']) => void): this;
+  /**
+   * Register a listener for the close event
+   * @param event Event name
+   * @param listener The callback function
+   */
+  public on(event: 'close', listener: (data: LndStreamingEvents['close']) => void): this;
+  /**
+   * Register a listener for the invoice event
+   * @param event Event name
+   * @param listener The callback function
+   */
+  public on(event: 'invoice', listener: (data: LndStreamingEvents['invoice']) => void): this;
+  /**
+   * Register a listener for the singleInvoice event
+   * @param event Event name
+   * @param listener The callback function
+   */
+  public on(event: 'singleInvoice', listener: (data: LndStreamingEvents['singleInvoice']) => void): this;
+  /**
+   * Register a listener for the paymentUpdate event
+   * @param event Event name
+   * @param listener The callback function
+   */
+  public on(event: 'paymentUpdate', listener: (data: LndStreamingEvents['paymentUpdate']) => void): this;
+  /**
+   * Register a listener for any other event
+   * @param event Event name
+   * @param listener The callback function
+   */
+  public on(event: string | symbol, listener: (...args: any[]) => void): this {
+    return super.on(event, listener);
   }
 
   /**
@@ -350,5 +425,360 @@ export class LndClient {
       // For non-Axios errors or missing response
       throw new Error(`Failed to send payment: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  // ==========================================================================
+  // STREAMING METHODS
+  // ==========================================================================
+
+  /**
+   * Create a WebSocket URL from an HTTP URL
+   * @param httpUrl HTTP URL to convert
+   * @returns WebSocket URL (wss:// or ws://)
+   */
+  private httpToWsUrl(httpUrl: string): string {
+    return httpUrl.replace(/^http/, 'ws');
+  }
+
+  /**
+   * Create a new WebSocket connection
+   * @param url REST API URL to connect to
+   * @param headers HTTP headers for authentication
+   * @param enableRetry Whether to enable automatic retries on disconnection
+   * @param maxRetries Maximum number of retry attempts (default: 5)
+   * @param retryDelay Base delay for retries in ms, will be increased exponentially (default: 1000)
+   * @returns WebSocket connection
+   */
+  private createWebSocketConnection(
+    url: string, 
+    headers: Record<string, string>, 
+    enableRetry: boolean = false,
+    maxRetries: number = this.defaultMaxRetries,
+    retryDelay: number = this.defaultRetryDelay
+  ): WebSocket {
+    const wsUrl = this.httpToWsUrl(url);
+    
+    const ws = new WebSocket(wsUrl, {
+      headers
+    });
+
+    // Set up event listeners
+    ws.on('open', () => {
+      // Reset retry attempts when connection is successful
+      this.retryAttempts.set(url, 0);
+      this.emit('open', { url });
+    });
+
+    ws.on('error', (error: Error) => {
+      this.emit('error', { url, error });
+    });
+
+    ws.on('close', (code: number, reason: string) => {
+      this.emit('close', { url, code, reason });
+      this.connections.delete(url);
+      
+      // Implement retry logic if enabled
+      if (enableRetry) {
+        this.retryConnection(url, headers, maxRetries, retryDelay);
+      }
+    });
+
+    // Store the connection for later reference
+    this.connections.set(url, ws);
+    
+    return ws;
+  }
+
+  /**
+   * Retry a connection with exponential backoff
+   * @param url URL to reconnect to
+   * @param headers HTTP headers for authentication
+   * @param maxRetries Maximum number of retry attempts
+   * @param retryDelay Base delay for retries in ms
+   */
+  private retryConnection(
+    url: string, 
+    headers: Record<string, string>,
+    maxRetries: number,
+    retryDelay: number
+  ): void {
+    // Clear any existing retry interval
+    if (this.retryIntervals.has(url)) {
+      clearTimeout(this.retryIntervals.get(url)!);
+      this.retryIntervals.delete(url);
+    }
+    
+    // Get current retry attempt count or initialize to 0
+    const attemptCount = this.retryAttempts.get(url) || 0;
+    
+    // Check if we've exceeded max retries
+    if (attemptCount >= maxRetries) {
+      this.emit('error', { 
+        url, 
+        error: new Error(`Maximum retry attempts (${maxRetries}) reached for ${url}`),
+        message: 'Connection retry limit reached'
+      });
+      return;
+    }
+    
+    // Increment retry count
+    this.retryAttempts.set(url, attemptCount + 1);
+    
+    // Calculate delay with exponential backoff (2^attempt * delay)
+    const delay = retryDelay * Math.pow(2, attemptCount);
+    
+    // Set timeout for retry
+    const timeoutId = setTimeout(() => {
+      this.emit('open', { url, reconnecting: true, attempt: attemptCount + 1 });
+      
+      // Attempt to reconnect
+      const wsUrl = this.httpToWsUrl(url);
+      const ws = new WebSocket(wsUrl, { headers });
+      
+      // Set up event listeners on new connection
+      ws.on('open', () => {
+        this.emit('open', { url, reconnected: true });
+        this.connections.set(url, ws);
+        this.retryAttempts.set(url, 0);
+        this.retryIntervals.delete(url);
+      });
+      
+      ws.on('error', (error: Error) => {
+        this.emit('error', { url, error, reconnecting: true });
+        // Let the close handler handle the retry
+      });
+      
+      ws.on('close', (code: number, reason: string) => {
+        this.emit('close', { url, code, reason, reconnecting: true });
+        this.connections.delete(url);
+        // Try again
+        this.retryConnection(url, headers, maxRetries, retryDelay);
+      });
+      
+    }, delay);
+    
+    this.retryIntervals.set(url, timeoutId);
+  }
+
+  /**
+   * Close a specific WebSocket connection
+   * @param url URL of the connection to close
+   */
+  public closeConnection(url: string): void {
+    const connection = this.connections.get(url);
+    if (connection) {
+      connection.close();
+      this.connections.delete(url);
+    }
+    
+    // Clean up retry state
+    if (this.retryIntervals.has(url)) {
+      clearTimeout(this.retryIntervals.get(url)!);
+      this.retryIntervals.delete(url);
+    }
+    this.retryAttempts.delete(url);
+  }
+
+  /**
+   * Close all active WebSocket connections
+   */
+  public closeAllConnections(): void {
+    for (const [url, connection] of this.connections.entries()) {
+      connection.close();
+      this.connections.delete(url);
+      
+      // Clean up retry state
+      if (this.retryIntervals.has(url)) {
+        clearTimeout(this.retryIntervals.get(url)!);
+        this.retryIntervals.delete(url);
+      }
+    }
+    this.retryAttempts.clear();
+  }
+
+  /**
+   * Check if a specific WebSocket connection is active
+   * @param url URL of the connection to check
+   * @returns True if the connection exists and is in the OPEN state
+   */
+  public isConnectionActive(url: string): boolean {
+    const connection = this.connections.get(url);
+    return connection !== undefined && connection.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Get the status of a specific WebSocket connection
+   * @param url URL of the connection to check
+   * @returns Connection status or null if connection doesn't exist
+   */
+  public getConnectionStatus(url: string): 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | null {
+    const connection = this.connections.get(url);
+    if (!connection) {
+      return null;
+    }
+
+    switch (connection.readyState) {
+      case WebSocket.CONNECTING:
+        return 'CONNECTING';
+      case WebSocket.OPEN:
+        return 'OPEN';
+      case WebSocket.CLOSING:
+        return 'CLOSING';
+      case WebSocket.CLOSED:
+        return 'CLOSED';
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Subscribe to all invoice updates
+   * Emits 'invoice' events when updates are received
+   * @param enableRetry Whether to automatically retry on disconnection
+   * @param maxRetries Maximum number of retry attempts
+   * @param retryDelay Base delay between retries in ms
+   * @returns URL of the subscription (used for closing the connection)
+   */
+  public subscribeInvoices(
+    enableRetry: boolean = false,
+    maxRetries: number = this.defaultMaxRetries,
+    retryDelay: number = this.defaultRetryDelay
+  ): string {
+    // Get the base URL without the trailing slash
+    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
+    const url = `${baseUrl}/v1/invoices/subscribe`;
+    const headers = {
+      'Grpc-Metadata-macaroon': this.config.macaroon
+    };
+
+    const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
+    
+    ws.on('message', (data: WebSocket.Data) => {
+      try {
+        const invoice = JSON.parse(data.toString()) as Invoice;
+        this.emit('invoice', invoice);
+      } catch (error) {
+        this.emit('error', { url, error, message: 'Failed to parse invoice data' });
+      }
+    });
+
+    return url;
+  }
+
+  /**
+   * Subscribe to updates for a specific invoice
+   * Emits 'singleInvoice' events when updates are received
+   * @param paymentHash Payment hash of the invoice to track (hex format)
+   * @param enableRetry Whether to automatically retry on disconnection
+   * @param maxRetries Maximum number of retry attempts
+   * @param retryDelay Base delay between retries in ms
+   * @returns URL of the subscription (used for closing the connection)
+   */
+  public subscribeSingleInvoice(
+    paymentHash: string,
+    enableRetry: boolean = false,
+    maxRetries: number = this.defaultMaxRetries,
+    retryDelay: number = this.defaultRetryDelay
+  ): string {
+    // Get the base URL without the trailing slash
+    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
+    
+    // Convert the payment hash to URL-safe base64 format
+    const urlSafeHash = toUrlSafeBase64Format(paymentHash);
+    
+    const url = `${baseUrl}/v2/invoices/subscribe/${urlSafeHash}`;
+    const headers = {
+      'Grpc-Metadata-macaroon': this.config.macaroon
+    };
+
+    const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
+    
+    ws.on('message', (data: WebSocket.Data) => {
+      try {
+        const invoice = JSON.parse(data.toString()) as Invoice;
+        this.emit('singleInvoice', invoice);
+      } catch (error) {
+        this.emit('error', { url, error, message: 'Failed to parse invoice data' });
+      }
+    });
+
+    return url;
+  }
+
+  /**
+   * Track updates for a specific payment
+   * Emits 'paymentUpdate' events when updates are received
+   * @param paymentHash Payment hash to track (hex format)
+   * @param enableRetry Whether to automatically retry on disconnection
+   * @param maxRetries Maximum number of retry attempts
+   * @param retryDelay Base delay between retries in ms
+   * @returns URL of the subscription (used for closing the connection)
+   */
+  public trackPayments(
+    paymentHash: string,
+    enableRetry: boolean = false,
+    maxRetries: number = this.defaultMaxRetries,
+    retryDelay: number = this.defaultRetryDelay
+  ): string {
+    // Get the base URL without the trailing slash
+    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
+    
+    // Convert the payment hash to URL-safe base64 format
+    const urlSafeHash = toUrlSafeBase64Format(paymentHash);
+    
+    const url = `${baseUrl}/v2/router/track/${urlSafeHash}`;
+    const headers = {
+      'Grpc-Metadata-macaroon': this.config.macaroon
+    };
+
+    const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
+    
+    ws.on('message', (data: WebSocket.Data) => {
+      try {
+        const paymentUpdate = JSON.parse(data.toString()) as PaymentStatus;
+        this.emit('paymentUpdate', paymentUpdate);
+      } catch (error) {
+        this.emit('error', { url, error, message: 'Failed to parse payment data' });
+      }
+    });
+
+    return url;
+  }
+
+  /**
+   * Track updates for all payments (TrackPaymentV2)
+   * Emits 'paymentUpdate' events when updates are received
+   * @param noInflightUpdates If true, do not include updates for payments that are currently in-flight
+   * @param enableRetry Whether to automatically retry on disconnection
+   * @param maxRetries Maximum number of retry attempts
+   * @param retryDelay Base delay between retries in ms
+   * @returns URL of the subscription (used for closing the connection)
+   */
+  public trackPaymentV2(
+    noInflightUpdates: boolean = false,
+    enableRetry: boolean = false,
+    maxRetries: number = this.defaultMaxRetries,
+    retryDelay: number = this.defaultRetryDelay
+  ): string {
+    // Get the base URL without the trailing slash
+    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
+    
+    const url = `${baseUrl}/v2/router/trackpayments?no_inflight_updates=${noInflightUpdates}`;
+    const headers = {
+      'Grpc-Metadata-macaroon': this.config.macaroon
+    };
+
+    const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
+    
+    ws.on('message', (data: WebSocket.Data) => {
+      try {
+        const paymentUpdate = JSON.parse(data.toString()) as PaymentStatus;
+        this.emit('paymentUpdate', paymentUpdate);
+      } catch (error) {
+        this.emit('error', { url, error, message: 'Failed to parse payment data' });
+      }
+    });
+
+    return url;
   }
 }

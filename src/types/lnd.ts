@@ -341,4 +341,58 @@ export interface SendPaymentResponse {
     };
     preimage: string;
   }>;
+}
+
+/**
+ * Represents a payment status update from the TrackPayments or TrackPaymentV2 endpoints
+ * This is returned by streaming endpoints and reflects the current state of a payment
+ */
+export interface PaymentStatus {
+  payment_hash: string;
+  status: 'UNKNOWN' | 'IN_FLIGHT' | 'SUCCEEDED' | 'FAILED';
+  creation_date: string;
+  htlcs: Array<{
+    status: string;
+    route: {
+      hops: Array<{
+        chan_id: string;
+        chan_capacity: string;
+        amt_to_forward: string;
+        fee: string;
+        expiry: number;
+        amt_to_forward_msat: string;
+        fee_msat: string;
+        pub_key: string;
+      }>;
+      total_time_lock: number;
+      total_fees: string;
+      total_amt: string;
+      total_fees_msat: string;
+      total_amt_msat: string;
+    };
+    attempt_time_ns: string;
+    resolve_time_ns: string;
+    failure?: {
+      code: string;
+      channel_update: any;
+      htlc_msat: string;
+      onion_sha_256: string;
+      cltv_expiry: string;
+      flags: number;
+      failure_source_index: number;
+      height: number;
+    };
+    preimage: string;
+  }>;
+  value: string;
+  value_sat: string;
+  value_msat: string;
+  payment_request: string;
+  payment_preimage: string;
+  fee: string;
+  fee_sat: string;
+  fee_msat: string;
+  creation_time_ns: string;
+  inflight: boolean;
+  failure_reason: 'FAILURE_REASON_NONE' | 'FAILURE_REASON_TIMEOUT' | 'FAILURE_REASON_NO_ROUTE' | 'FAILURE_REASON_ERROR' | 'FAILURE_REASON_INCORRECT_PAYMENT_DETAILS' | 'FAILURE_REASON_INSUFFICIENT_BALANCE';
 } 
