@@ -89,6 +89,17 @@ export interface LookupInvoiceRequest {
   r_hash_str: string;
 }
 
+/**
+ * Request parameters for the v2 invoice lookup endpoint
+ * Used with the /v2/invoices/lookup endpoint
+ */
+export interface LookupInvoiceV2Request {
+  /**
+   * Payment hash in URL-safe base64 format
+   */
+  payment_hash: string;
+}
+
 export interface Invoice {
   memo: string;
   r_preimage: string;
