@@ -1,8 +1,10 @@
 import streamingExample from './streamingExample';
+import mockedStreamingExample from './mockedStreamingExample';
 
 // Export all monitoring examples
 export {
-  streamingExample
+  streamingExample,
+  mockedStreamingExample
 };
 
 // Default export for convenience

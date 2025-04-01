@@ -21,7 +21,7 @@ import {
   SendPaymentResponse,
   PaymentStatus
 } from '../types/lnd';
-import { toUrlSafeBase64, fromUrlSafeBase64, hexToUrlSafeBase64, urlSafeBase64ToHex, toUrlSafeBase64Format } from '../utils/base64Utils';
+import { toUrlSafeBase64Format, hexToUrlSafeBase64 } from '../utils/base64Utils';
 
 /**
  * LndStreamingEvents defines the events that can be emitted by LndClient for streaming connections
@@ -72,41 +72,12 @@ export class LndClient extends EventEmitter {
   }
 
   /**
-   * Register a listener for the open event
-   * @param event Event name
-   * @param listener The callback function
+   * Register a listener for standard event types
    */
-  public on(event: 'open', listener: (data: LndStreamingEvents['open']) => void): this;
-  /**
-   * Register a listener for the error event
-   * @param event Event name
-   * @param listener The callback function
-   */
-  public on(event: 'error', listener: (data: LndStreamingEvents['error']) => void): this;
-  /**
-   * Register a listener for the close event
-   * @param event Event name
-   * @param listener The callback function
-   */
-  public on(event: 'close', listener: (data: LndStreamingEvents['close']) => void): this;
-  /**
-   * Register a listener for the invoice event
-   * @param event Event name
-   * @param listener The callback function
-   */
-  public on(event: 'invoice', listener: (data: LndStreamingEvents['invoice']) => void): this;
-  /**
-   * Register a listener for the singleInvoice event
-   * @param event Event name
-   * @param listener The callback function
-   */
-  public on(event: 'singleInvoice', listener: (data: LndStreamingEvents['singleInvoice']) => void): this;
-  /**
-   * Register a listener for the paymentUpdate event
-   * @param event Event name
-   * @param listener The callback function
-   */
-  public on(event: 'paymentUpdate', listener: (data: LndStreamingEvents['paymentUpdate']) => void): this;
+  public on<K extends keyof LndStreamingEvents>(
+    event: K, 
+    listener: (data: LndStreamingEvents[K]) => void
+  ): this;
   /**
    * Register a listener for any other event
    * @param event Event name
@@ -458,9 +429,7 @@ export class LndClient extends EventEmitter {
   ): WebSocket {
     const wsUrl = this.httpToWsUrl(url);
     
-    const ws = new WebSocket(wsUrl, {
-      headers
-    });
+    const ws = new WebSocket(wsUrl, { headers });
 
     // Set up event listeners
     ws.on('open', () => {
