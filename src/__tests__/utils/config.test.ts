@@ -1,4 +1,5 @@
 import { getLndConfig, getLndConfigWithFallback } from '../../utils/config';
+import { BitcoinNetwork } from '../../types/lnd';
 
 // Mock fs module
 jest.mock('fs', () => ({
@@ -46,6 +47,7 @@ describe('LND Configuration Utilities', () => {
       expect(config).toEqual({
         baseUrl: 'https://test-lnd:8080',
         macaroon: '01020304',
+        network: undefined
       });
     });
 
@@ -59,6 +61,7 @@ describe('LND Configuration Utilities', () => {
       expect(config).toEqual({
         baseUrl: 'https://test-lnd:8080',
         macaroon: 'abcdef1234567890',
+        network: undefined
       });
     });
 
@@ -74,6 +77,7 @@ describe('LND Configuration Utilities', () => {
         baseUrl: 'https://test-lnd:8080',
         macaroon: '01020304',
         tlsCert: 'mock-tls-cert-content',
+        network: undefined
       });
     });
 
@@ -89,6 +93,22 @@ describe('LND Configuration Utilities', () => {
         baseUrl: 'https://test-lnd:8080',
         macaroon: '01020304',
         tlsCert: '-----BEGIN CERTIFICATE-----\nMIICertContent\n-----END CERTIFICATE-----',
+        network: undefined
+      });
+    });
+
+    it('should include network when provided in environment variables', () => {
+      // Set environment variables
+      process.env.LND_REST_API_URL = 'https://test-lnd:8080';
+      process.env.LND_MACAROON = 'abcdef1234567890';
+      process.env.LND_NETWORK = 'signet';
+      
+      const config = getLndConfig();
+      
+      expect(config).toEqual({
+        baseUrl: 'https://test-lnd:8080',
+        macaroon: 'abcdef1234567890',
+        network: 'signet'
       });
     });
 
@@ -99,6 +119,7 @@ describe('LND Configuration Utilities', () => {
       process.env.LND_MACAROON_PATH = '/valid/macaroon/path';
       process.env.LND_TLS_CERT = 'direct-tls-cert-content';
       process.env.LND_TLS_CERT_PATH = '/valid/tls/path';
+      process.env.LND_NETWORK = 'mainnet';
       
       const config = getLndConfig();
       
@@ -106,6 +127,7 @@ describe('LND Configuration Utilities', () => {
         baseUrl: 'https://test-lnd:8080',
         macaroon: 'direct-macaroon-hex',
         tlsCert: 'direct-tls-cert-content',
+        network: 'mainnet'
       });
       
       // File should not be read when direct value is provided
@@ -132,12 +154,14 @@ describe('LND Configuration Utilities', () => {
       // Set environment variables
       process.env.LND_REST_API_URL = 'https://test-lnd:8080';
       process.env.LND_MACAROON = 'direct-macaroon-hex';
+      process.env.LND_NETWORK = 'signet';
       
       const config = getLndConfigWithFallback();
       
       expect(config).toEqual({
         baseUrl: 'https://test-lnd:8080',
         macaroon: 'direct-macaroon-hex',
+        network: 'signet'
       });
     });
 
@@ -146,6 +170,7 @@ describe('LND Configuration Utilities', () => {
       delete process.env.LND_REST_API_URL;
       delete process.env.LND_MACAROON_PATH;
       delete process.env.LND_MACAROON;
+      delete process.env.LND_NETWORK;
       
       const config = getLndConfigWithFallback();
       
@@ -153,10 +178,44 @@ describe('LND Configuration Utilities', () => {
       expect(config).toEqual({
         baseUrl: 'https://your-lnd-node:8080',
         macaroon: 'your-admin-macaroon-hex-here',
+        network: 'mainnet'
       });
       
       // Console warning should have been called
       expect(console.warn).toHaveBeenCalled();
+    });
+
+    it('should allow overriding network parameter', () => {
+      // Set environment variables with one network
+      process.env.LND_REST_API_URL = 'https://test-lnd:8080';
+      process.env.LND_MACAROON = 'direct-macaroon-hex';
+      process.env.LND_NETWORK = 'mainnet';
+      
+      // Override with a different network
+      const config = getLndConfigWithFallback(true, 'signet' as BitcoinNetwork);
+      
+      expect(config).toEqual({
+        baseUrl: 'https://test-lnd:8080',
+        macaroon: 'direct-macaroon-hex',
+        network: 'signet'
+      });
+    });
+
+    it('should use the specified network in fallback mode', () => {
+      // Clear environment variables
+      delete process.env.LND_REST_API_URL;
+      delete process.env.LND_MACAROON_PATH;
+      delete process.env.LND_MACAROON;
+      delete process.env.LND_NETWORK;
+      
+      // Specify a network
+      const config = getLndConfigWithFallback(true, 'signet' as BitcoinNetwork);
+      
+      expect(config).toEqual({
+        baseUrl: 'https://your-lnd-node:8080',
+        macaroon: 'your-admin-macaroon-hex-here',
+        network: 'signet'
+      });
     });
   });
 }); 

@@ -20,9 +20,9 @@ import listPaymentsExample from './payments/listPayments';
  * Run all examples in sequence
  */
 async function runExamples() {
-  console.log('='.repeat(50));
+  console.log('='.repeat(5));
   console.log('FLNDR SDK Examples');
-  console.log('='.repeat(50));
+  console.log('='.repeat(5));
   
   try {
     // Check if valid environment variables are set
@@ -40,31 +40,31 @@ async function runExamples() {
     
     // Info examples
     console.log('\n1️⃣ Running Info Examples:');
-    console.log('-'.repeat(50));
+    console.log('-'.repeat(5));
     await getInfoExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(5));
     await channelBalanceExample();
     
     // Receiving examples
     console.log('\n\n2️⃣ Running Receiving Examples:');
-    console.log('-'.repeat(50));
+    console.log('-'.repeat(5));
     await addInvoiceExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(5));
     await lookupInvoiceExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(5));
     await listInvoicesExample();
     
     // Payment examples
     console.log('\n\n3️⃣ Running Payment Examples:');
-    console.log('-'.repeat(50));
+    console.log('-'.repeat(5));
     await listPaymentsExample();
     
-    console.log('\n='.repeat(50));
+    console.log('\n='.repeat(5));
     console.log('✅ All examples completed successfully!');
-    console.log('='.repeat(50));
+    console.log('='.repeat(5));
   } catch (error) {
     console.error('\n❌ Error running examples:', error);
     process.exit(1);

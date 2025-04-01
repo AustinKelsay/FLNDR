@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
+import { BitcoinNetwork } from '../types/lnd';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -12,6 +13,7 @@ export interface LndConfig {
   baseUrl: string;
   macaroon: string;
   tlsCert?: string;
+  network?: BitcoinNetwork;
 }
 
 /**
@@ -61,21 +63,31 @@ export function getLndConfig(): LndConfig {
     }
   }
 
+  // Check for network configuration
+  const network = process.env.LND_NETWORK as BitcoinNetwork | undefined;
+
   return {
     baseUrl: baseUrl,
     macaroon: macaroon as string,
     tlsCert,
+    network,
   };
 }
 
 /**
  * Get LND configuration with graceful fallback to example values
  * @param warn Whether to log a warning when using fallback values
+ * @param network Optional network to connect to
  * @returns LND configuration object (either from env vars or fallback values)
  */
-export function getLndConfigWithFallback(warn = true): LndConfig {
+export function getLndConfigWithFallback(warn = true, network?: BitcoinNetwork): LndConfig {
   try {
-    return getLndConfig();
+    const config = getLndConfig();
+    // If a network is specified in the function call, override the environment value
+    if (network) {
+      config.network = network;
+    }
+    return config;
   } catch (error: any) {
     if (warn) {
       console.warn(`Warning: ${error.message}`);
@@ -86,6 +98,7 @@ export function getLndConfigWithFallback(warn = true): LndConfig {
     return {
       baseUrl: 'https://your-lnd-node:8080',
       macaroon: 'your-admin-macaroon-hex-here',
+      network: network || 'mainnet',
     };
   }
 } 

@@ -10,15 +10,21 @@ import {
   ListPaymentsRequest,
   ListPaymentsResponse,
   ListInvoicesRequest,
-  ListInvoicesResponse
+  ListInvoicesResponse,
+  BitcoinNetwork
 } from '../types/lnd';
+import { toUrlSafeBase64, fromUrlSafeBase64, hexToUrlSafeBase64, urlSafeBase64ToHex, toUrlSafeBase64Format } from '../utils/base64Utils';
 
 export class LndClient {
   private readonly client: AxiosInstance;
   private readonly config: LndConnectionConfig;
+  private network: BitcoinNetwork;
+  private networkDetected: boolean = false;
 
   constructor(config: LndConnectionConfig) {
     this.config = config;
+    // Set default network to mainnet if not specified
+    this.network = config.network || 'mainnet';
 
     // Create an axios instance with default configuration
     this.client = axios.create({
@@ -28,6 +34,70 @@ export class LndClient {
       },
       httpsAgent: config.tlsCert ? undefined : undefined, // TLS implementation can be added here
     });
+  }
+
+  /**
+   * Auto-detect the network by checking the node's info
+   * This updates the internal network state
+   */
+  private async detectNetwork(): Promise<void> {
+    if (this.networkDetected) return;
+    
+    try {
+      const info = await this.getInfo();
+      
+      if (info.chains && info.chains.length > 0) {
+        const chainNetwork = info.chains[0].network;
+        
+        // Map chain network value to our BitcoinNetwork type
+        if (chainNetwork === 'mainnet') {
+          this.network = 'mainnet';
+        } else if (chainNetwork === 'regtest') {
+          this.network = 'regtest';
+        } else if (chainNetwork === 'signet') {
+          this.network = 'signet';
+        }
+      }
+      
+      this.networkDetected = true;
+    } catch (error) {
+      // If we can't detect, just keep the default network
+      console.warn('Could not auto-detect network, using provided network value');
+    }
+  }
+
+  /**
+   * Get the current network this client is connected to
+   * Will auto-detect the network if not already done
+   * @returns The Bitcoin network (mainnet, regtest, signet)
+   */
+  public async getNetwork(): Promise<BitcoinNetwork> {
+    if (!this.networkDetected) {
+      await this.detectNetwork();
+    }
+    return this.network;
+  }
+
+  /**
+   * Check if the client is connected to mainnet
+   * @returns True if connected to mainnet
+   */
+  public async isMainnet(): Promise<boolean> {
+    if (!this.networkDetected) {
+      await this.detectNetwork();
+    }
+    return this.network === 'mainnet';
+  }
+
+  /**
+   * Check if the client is connected to signet
+   * @returns True if connected to signet
+   */
+  public async isSignet(): Promise<boolean> {
+    if (!this.networkDetected) {
+      await this.detectNetwork();
+    }
+    return this.network === 'signet';
   }
 
   /**
@@ -51,7 +121,8 @@ export class LndClient {
    */
   public async channelBalance(): Promise<ChannelBalanceResponse> {
     try {
-      const response = await this.client.get<ChannelBalanceResponse>('/v1/channels/balance');
+      // Use the newer endpoint (LND v0.15.0+)
+      const response = await this.client.get<ChannelBalanceResponse>('/v1/balance/channels');
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -80,12 +151,19 @@ export class LndClient {
 
   /**
    * Lookup an invoice by payment hash
-   * @param request Invoice lookup parameters
+   * @param r_hash_str Payment hash (can be hex or base64 encoded)
    * @returns Invoice details
    */
   public async lookupInvoiceV2(r_hash_str: string): Promise<Invoice> {
     try {
-      const response = await this.client.get<Invoice>(`/v2/invoices/lookup?payment_hash=${r_hash_str}`);
+      // Convert the payment hash to URL-safe base64 format
+      const urlSafeBase64Hash = toUrlSafeBase64Format(r_hash_str);
+      
+      // Use the v2 endpoint with URL-safe base64
+      const response = await this.client.get<Invoice>(`/v2/invoices/lookup`, {
+        params: { payment_hash: urlSafeBase64Hash }
+      });
+      
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -149,4 +227,4 @@ export class LndClient {
       throw error;
     }
   }
-} 
+}

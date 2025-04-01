@@ -1,8 +1,11 @@
 export interface LndConnectionConfig {
   baseUrl: string;
   macaroon: string;
-  tlsCert?: string; 
+  tlsCert?: string;
+  network?: BitcoinNetwork;
 }
+
+export type BitcoinNetwork = 'mainnet' | 'regtest' | 'signet';
 
 export interface GetInfoResponse {
   version: string;

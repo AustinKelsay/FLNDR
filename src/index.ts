@@ -11,8 +11,12 @@ export {
   ListPaymentsResponse,
   ListInvoicesRequest,
   ListInvoicesResponse,
-  Payment
+  Payment,
+  BitcoinNetwork
 } from './types/lnd'; 
 
 // Export configuration utilities
-export { getLndConfig, getLndConfigWithFallback } from './utils/config'; 
+export { 
+  getLndConfig, 
+  getLndConfigWithFallback
+} from './utils/config'; 

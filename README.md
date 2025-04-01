@@ -8,6 +8,8 @@ FLNDR is a TypeScript-based wrapper for the LND REST API, designed to simplify L
 - TypeScript support with full type definitions
 - Lightweight with minimal dependencies
 - Easy to integrate into existing applications
+- Support for multiple Bitcoin networks (mainnet, signet (MutinyNet), regtest)
+- Automatic network detection
 
 ## Installation
 
@@ -45,7 +47,7 @@ import { LndClient } from 'flndr';
 const lndClient = new LndClient({
   baseUrl: 'https://your-lnd-node:8080',
   macaroon: 'your-hex-encoded-macaroon',
-  tlsCert: 'your-tls-cert-content' // Optional
+  tlsCert: 'your-tls-cert-content', // Optional
 });
 ```
 
@@ -66,12 +68,43 @@ async function getNodeInfo() {
     const info = await lnd.getInfo();
     console.log(`Connected to ${info.alias} (${info.identity_pubkey})`);
     console.log(`Active channels: ${info.num_active_channels}`);
+    
+    // Check which network we're connected to
+    console.log(`Network: ${await lnd.getNetwork()}`);
   } catch (error) {
     console.error('Error:', error);
   }
 }
 
 getNodeInfo();
+```
+
+## Network Support
+
+FLNDR supports multiple Bitcoin networks and automatically detects which network your node is running on:
+
+- `mainnet`: Bitcoin mainnet (production)
+- `regtest`: Bitcoin regtest (local testing)
+- `signet`: Bitcoin signet (including MutinyNet)
+
+### Auto-detection
+
+The library will automatically determine which network your LND node is running on by checking the chain information returned from the node:
+
+```typescript
+import { LndClient, getLndConfigWithFallback } from 'flndr';
+
+const config = getLndConfigWithFallback();
+const lndClient = new LndClient(config);
+
+async function checkNetwork() {
+  // Auto-detects the network when any of these methods are called
+  console.log(`Network: ${await lndClient.getNetwork()}`);
+  console.log(`Is mainnet: ${await lndClient.isMainnet()}`);
+  console.log(`Is signet: ${await lndClient.isSignet()}`);
+}
+
+checkNetwork();
 ```
 
 ## Examples
@@ -104,6 +137,11 @@ Individual examples can be found in the `src/examples/` directory and can be run
 npx ts-node src/examples/info/getInfo.ts
 ```
 
+Network detection example:
+```bash
+npx ts-node src/examples/info/networkDetectionExample.ts
+```
+
 ## Tests
 
 The SDK includes comprehensive tests for all implemented methods. Run the tests with:
@@ -125,7 +163,7 @@ import { LndClient } from 'flndr';
 const lndClient = new LndClient({
   baseUrl: 'https://your-lnd-node:8080',
   macaroon: 'your-hex-encoded-macaroon',
-  tlsCert: 'your-tls-cert-content' // Optional
+  tlsCert: 'your-tls-cert-content', // Optional
 });
 
 // Or initialize using environment variables
