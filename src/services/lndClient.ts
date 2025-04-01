@@ -11,7 +11,12 @@ import {
   ListPaymentsResponse,
   ListInvoicesRequest,
   ListInvoicesResponse,
-  BitcoinNetwork
+  BitcoinNetwork,
+  DecodedPaymentRequest,
+  RouteFeesRequest,
+  RouteFeesResponse,
+  SendPaymentRequest,
+  SendPaymentResponse
 } from '../types/lnd';
 import { toUrlSafeBase64, fromUrlSafeBase64, hexToUrlSafeBase64, urlSafeBase64ToHex, toUrlSafeBase64Format } from '../utils/base64Utils';
 
@@ -225,6 +230,110 @@ export class LndClient {
         throw new Error(`Failed to list payments: ${error.message}`);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Decode a Lightning payment request (bolt11 invoice)
+   * @param paymentRequest The payment request string to decode
+   * @returns Decoded payment request details
+   */
+  public async decodePayReq(paymentRequest: string): Promise<DecodedPaymentRequest> {
+    try {
+      const response = await this.client.get<DecodedPaymentRequest>(`/v1/payreq/${encodeURIComponent(paymentRequest)}`);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        // Extract detailed error information if available
+        const status = error.response.status;
+        const errorData = error.response.data;
+        
+        // For error types, include as much detail as possible
+        const errorDetail = typeof errorData === 'object' ? JSON.stringify(errorData) : errorData;
+        throw new Error(`Failed to decode payment request (status ${status}): ${errorDetail || error.message}`);
+      }
+      
+      // For non-Axios errors or missing response
+      throw new Error(`Failed to decode payment request: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Estimate the routing fees for a payment
+   * @param request Route fee estimation parameters
+   * @returns Estimated routing fees and probability of success
+   */
+  public async estimateRouteFee(request: RouteFeesRequest): Promise<RouteFeesResponse> {
+    try {
+      // Convert hex pubkey to URL-safe base64
+      const destBase64 = hexToUrlSafeBase64(request.dest);
+      
+      // Create a request object matching exactly what the LND API expects
+      const requestBody: any = {
+        dest: destBase64,
+        amt_sat: request.amt_sat
+      };
+      
+      // Add optional parameters only if they are defined
+      if (request.timeout !== undefined) {
+        requestBody.timeout = request.timeout;
+      }
+      
+      const response = await this.client.post<RouteFeesResponse>(
+        '/v2/router/route/estimatefee',
+        requestBody,
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        // Extract detailed error information if available
+        const status = error.response.status;
+        const errorData = error.response.data;
+        
+        if (status === 500) {
+          // For 500 errors, try to extract more detailed error information
+          const errorMessage = errorData?.error || errorData?.message || error.message;
+          throw new Error(`Failed to estimate route fees (status 500): ${errorMessage}. This often means no route was found for the specified amount.`);
+        }
+        
+        // For other error types, include as much detail as possible
+        const errorDetail = typeof errorData === 'object' ? JSON.stringify(errorData) : errorData;
+        throw new Error(`Failed to estimate route fees (status ${status}): ${errorDetail || error.message}`);
+      }
+      
+      // For non-Axios errors or missing response
+      throw new Error(`Failed to estimate route fees: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Send a Lightning payment
+   * @param request Payment request parameters
+   * @returns Payment result
+   */
+  public async sendPaymentV2(request: SendPaymentRequest): Promise<SendPaymentResponse> {
+    try {
+      const response = await this.client.post<SendPaymentResponse>('/v2/router/send', request);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        // Extract detailed error information if available
+        const status = error.response.status;
+        const errorData = error.response.data;
+        
+        // For error types, include as much detail as possible
+        const errorDetail = typeof errorData === 'object' ? JSON.stringify(errorData) : errorData;
+        throw new Error(`Failed to send payment (status ${status}): ${errorDetail || error.message}`);
+      }
+      
+      // For non-Axios errors or missing response
+      throw new Error(`Failed to send payment: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

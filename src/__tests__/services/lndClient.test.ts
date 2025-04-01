@@ -1,12 +1,18 @@
 import axios, { AxiosError } from 'axios';
 import { LndClient } from '../../services/lndClient';
+import { hexToUrlSafeBase64 } from '../../utils/base64Utils';
 import {
   GetInfoResponse,
   ChannelBalanceResponse,
   AddInvoiceResponse,
   Invoice,
   ListPaymentsResponse,
-  ListInvoicesResponse
+  ListInvoicesResponse,
+  DecodedPaymentRequest,
+  RouteFeesResponse,
+  RouteFeesRequest,
+  SendPaymentResponse,
+  SendPaymentRequest
 } from '../../types/lnd';
 
 // Mock axios
@@ -421,6 +427,167 @@ describe('LndClient', () => {
       
       // Restore console.warn
       console.warn = originalWarn;
+    });
+  });
+
+  describe('decodePayReq', () => {
+    const mockResponse: DecodedPaymentRequest = {
+      destination: 'abc123....',
+      payment_hash: 'def456...',
+      num_satoshis: '100000',
+      timestamp: '1650000000',
+      expiry: '3600',
+      description: 'Test payment',
+      description_hash: '',
+      fallback_addr: '',
+      cltv_expiry: '40',
+      route_hints: [],
+      payment_addr: 'xyz789...',
+      num_msat: '100000000',
+      features: {},
+    };
+
+    it('should decode a payment request', async () => {
+      mockedAxios.get.mockResolvedValueOnce({ data: mockResponse });
+
+      const paymentRequest = 'lnbc1...';
+      const result = await lndClient.decodePayReq(paymentRequest);
+
+      expect(mockedAxios.get).toHaveBeenCalledWith(`/v1/payreq/${encodeURIComponent(paymentRequest)}`);
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should handle errors when decoding payment request', async () => {
+      const error = new Error('Invalid payment request');
+      mockedAxios.get.mockRejectedValueOnce(error);
+      mockedIsAxiosError.mockReturnValueOnce(true);
+
+      await expect(lndClient.decodePayReq('invalid')).rejects.toThrow('Failed to decode payment request');
+    });
+  });
+
+  describe('estimateRouteFee', () => {
+    it('should successfully estimate route fees', async () => {
+      const mockResponse: RouteFeesResponse = {
+        routing_fee_msat: '1000',
+        time_lock_delay: 144
+      };
+
+      const mockRequest = {
+        dest: '0369bbfcb51806cab960301489c37e98e74a38f83a874d0ce0e57f5d8cc9052394',
+        amt_sat: '1000'
+      };
+
+      const destBase64 = hexToUrlSafeBase64(mockRequest.dest);
+      mockedAxios.post.mockResolvedValueOnce({ data: mockResponse });
+
+      const result = await lndClient.estimateRouteFee(mockRequest);
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        '/v2/router/route/estimatefee',
+        {
+          dest: destBase64,
+          amt_sat: mockRequest.amt_sat
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should include timeout parameter when provided', async () => {
+      const mockResponse: RouteFeesResponse = {
+        routing_fee_msat: '1000',
+        time_lock_delay: 144
+      };
+
+      const mockRequest = {
+        dest: '0369bbfcb51806cab960301489c37e98e74a38f83a874d0ce0e57f5d8cc9052394',
+        amt_sat: '1000',
+        timeout: 60
+      };
+
+      const destBase64 = hexToUrlSafeBase64(mockRequest.dest);
+      mockedAxios.post.mockResolvedValueOnce({ data: mockResponse });
+
+      const result = await lndClient.estimateRouteFee(mockRequest);
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        '/v2/router/route/estimatefee',
+        {
+          dest: destBase64,
+          amt_sat: mockRequest.amt_sat,
+          timeout: mockRequest.timeout
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should throw an error when estimating fees fails', async () => {
+      const mockRequest = {
+        dest: '0369bbfcb51806cab960301489c37e98e74a38f83a874d0ce0e57f5d8cc9052394',
+        amt_sat: '1000'
+      };
+
+      const error = new Error('Network error');
+      mockedAxios.post.mockRejectedValueOnce(error);
+      mockedIsAxiosError.mockReturnValueOnce(true);
+
+      await expect(lndClient.estimateRouteFee(mockRequest)).rejects.toThrow(
+        'Failed to estimate route fees: Network error'
+      );
+    });
+  });
+
+  describe('sendPaymentV2', () => {
+    const mockResponse: SendPaymentResponse = {
+      payment_hash: 'abc123...',
+      payment_preimage: 'def456...',
+      payment_route: {
+        total_time_lock: 40,
+        total_fees: '1',
+        total_amt: '100001',
+        hops: [],
+      },
+      payment_error: '',
+      failure_reason: '',
+      status: 'SUCCEEDED',
+      fee_sat: '1',
+      fee_msat: '1000',
+      value_sat: '100000',
+      value_msat: '100000000',
+      creation_time_ns: '1650000000000000000',
+      htlcs: [],
+    };
+
+    const mockRequest: SendPaymentRequest = {
+      payment_request: 'lnbc1...',
+      fee_limit_sat: '10',
+    };
+
+    it('should send a payment', async () => {
+      mockedAxios.post.mockResolvedValueOnce({ data: mockResponse });
+
+      const result = await lndClient.sendPaymentV2(mockRequest);
+
+      expect(mockedAxios.post).toHaveBeenCalledWith('/v2/router/send', mockRequest);
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should handle errors when sending payment', async () => {
+      const error = new Error('Payment failed');
+      mockedAxios.post.mockRejectedValueOnce(error);
+      mockedIsAxiosError.mockReturnValueOnce(true);
+
+      await expect(lndClient.sendPaymentV2(mockRequest)).rejects.toThrow('Failed to send payment');
     });
   });
 }); 

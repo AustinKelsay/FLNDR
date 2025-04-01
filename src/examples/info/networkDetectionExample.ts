@@ -58,5 +58,5 @@ async function networkDetectionExample() {
   }
 }
 
-// Execute the example
-networkDetectionExample(); 
+// Export the example function
+export default networkDetectionExample; 

@@ -213,4 +213,121 @@ export interface ListPaymentsResponse {
   first_index_offset: string;
   last_index_offset: string;
   total_num_payments: string;
+}
+
+export interface DecodedPaymentRequest {
+  destination: string;
+  payment_hash: string;
+  num_satoshis: string;
+  timestamp: string;
+  expiry: string;
+  description: string;
+  description_hash: string;
+  fallback_addr: string;
+  cltv_expiry: string;
+  route_hints: Array<{
+    hop_hints: Array<{
+      node_id: string;
+      chan_id: string;
+      fee_base_msat: number;
+      fee_proportional_millionths: number;
+      cltv_expiry_delta: number;
+    }>;
+  }>;
+  payment_addr: string;
+  num_msat: string;
+  features: Record<string, {
+    name: string;
+    is_required: boolean;
+    is_known: boolean;
+  }>;
+}
+
+export interface RouteFeesRequest {
+  dest: string;
+  amt_sat: string;
+  timeout?: number;
+  use_mission_control?: boolean;
+  last_hop_pubkey?: string;
+  outgoing_chan_id?: string;
+}
+
+export interface RouteFeesResponse {
+  routing_fee_msat: string;
+  time_lock_delay: number;
+}
+
+export interface SendPaymentRequest {
+  payment_request?: string;
+  dest?: string;
+  amt?: string;
+  payment_hash?: string;
+  final_cltv_delta?: string;
+  fee_limit_sat?: string;
+  outgoing_chan_id?: string;
+  last_hop_pubkey?: string;
+  timeout_seconds?: string;
+  no_inflight_updates?: boolean;
+  max_parts?: string;
+  amp?: boolean;
+  dest_features?: number[];
+}
+
+export interface SendPaymentResponse {
+  payment_hash: string;
+  payment_preimage: string;
+  payment_route: {
+    total_time_lock: number;
+    total_fees: string;
+    total_amt: string;
+    hops: Array<{
+      chan_id: string;
+      chan_capacity: string;
+      amt_to_forward: string;
+      fee: string;
+      expiry: number;
+      amt_to_forward_msat: string;
+      fee_msat: string;
+      pub_key: string;
+    }>;
+  };
+  payment_error: string;
+  failure_reason: string;
+  status: 'UNKNOWN' | 'IN_FLIGHT' | 'SUCCEEDED' | 'FAILED';
+  fee_sat: string;
+  fee_msat: string;
+  value_sat: string;
+  value_msat: string;
+  creation_time_ns: string;
+  htlcs: Array<{
+    status: string;
+    route: {
+      total_time_lock: number;
+      total_fees: string;
+      total_amt: string;
+      hops: Array<{
+        chan_id: string;
+        chan_capacity: string;
+        amt_to_forward: string;
+        fee: string;
+        expiry: number;
+        amt_to_forward_msat: string;
+        fee_msat: string;
+        pub_key: string;
+      }>;
+    };
+    attempt_time_ns: string;
+    resolve_time_ns: string;
+    failure?: {
+      code: string;
+      channel_update: any;
+      htlc_msat: string;
+      onion_sha_256: string;
+      cltv_expiry: string;
+      flags: number;
+      failure_source_index: number;
+      height: number;
+    };
+    preimage: string;
+  }>;
 } 
