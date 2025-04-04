@@ -11,12 +11,6 @@ FLNDR is a TypeScript-based wrapper for the LND REST API, designed to simplify L
 - Support for multiple Bitcoin networks (mainnet, signet (MutinyNet), regtest)
 - Automatic network detection
 
-## Installation
-
-```bash
-npm install flndr
-```
-
 ## Configuration
 
 FLNDR can be configured using environment variables for secure access to your LND node. Create a `.env` file in your project root with the following variables:
@@ -186,6 +180,16 @@ const lndClient = new LndClient(config);
 #### Payment Methods
 
 - **listPayments(options)**: List outgoing payments with filtering and pagination
+- **decodePayReq(payReq)**: Decode a payment request
+- **estimateRouteFee(options)**: Estimate the fee for a payment
+- **sendPaymentV2(options)**: Send a payment using the Lightning Network
+
+#### Monitoring Methods
+
+- **subscribeInvoices(options)**: Subscribe to invoice updates
+- **subscribeSingleInvoice(options)**: Subscribe to a single invoice update
+- **trackPayments(options)**: Track outgoing payments
+- **trackPaymentV2(options)**: Track a payment by its payment hash
 
 ### Configuration Utility
 
@@ -214,20 +218,17 @@ const devConfig = getLndConfigWithFallback();
 - ✅ listPayments
 
 ### Sending
-- decodePayReq (Coming soon)
-- estimateRouteFee (Coming soon)
-- sendPaymentV2 (Coming soon)
+- ✅ decodePayReq
+- ✅ estimateRouteFee
+- ✅ sendPaymentV2
 
 ### Monitoring
-- subscribeInvoices (Coming soon)
-- subscribeSingleInvoice (Coming soon)
-- TrackPayments (Coming soon)
-- TrackPaymentV2 (Coming soon)
+- ✅ subscribeInvoices
+- ✅ subscribeSingleInvoice
+- ✅ TrackPayments
+- ✅ TrackPaymentV2
 
 ## License
 
 MIT
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
