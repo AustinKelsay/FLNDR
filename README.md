@@ -65,6 +65,8 @@ async function getNodeInfo() {
     
     // Check which network we're connected to
     console.log(`Network: ${await lnd.getNetwork()}`);
+    console.log(`Is mainnet: ${await lnd.isMainnet()}`);
+    console.log(`Is signet: ${await lnd.isSignet()}`);
   } catch (error) {
     console.error('Error:', error);
   }
@@ -170,11 +172,14 @@ const lndClient = new LndClient(config);
 
 - **getInfo()**: Get basic information about the LND node
 - **channelBalance()**: Get information about channel balances
+- **getNetwork()**: Get the Bitcoin network this client is connected to
+- **isMainnet()**: Check if the client is connected to mainnet
+- **isSignet()**: Check if the client is connected to signet
 
 #### Receiving Methods
 
 - **addInvoice(options)**: Create a new Lightning invoice
-- **lookupInvoiceV2(rHash)**: Look up an invoice by its payment hash
+- **lookupInvoiceV2(paymentHash)**: Look up an invoice by its payment hash
 - **listInvoices(options)**: List invoices with filtering and pagination
 
 #### Payment Methods
@@ -186,10 +191,10 @@ const lndClient = new LndClient(config);
 
 #### Monitoring Methods
 
-- **subscribeInvoices(options)**: Subscribe to invoice updates
-- **subscribeSingleInvoice(options)**: Subscribe to a single invoice update
-- **trackPayments(options)**: Track outgoing payments
-- **trackPaymentV2(options)**: Track a payment by its payment hash
+- **subscribeInvoices(enableRetry?, maxRetries?, retryDelay?)**: Subscribe to invoice updates
+- **subscribeSingleInvoice(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Subscribe to a single invoice update
+- **trackPayments(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Track payments with specific payment hash
+- **trackPaymentV2(noInflightUpdates?, enableRetry?, maxRetries?, retryDelay?)**: Track all outgoing payments
 
 ### Configuration Utility
 
@@ -210,14 +215,17 @@ const devConfig = getLndConfigWithFallback();
 ### Info
 - ✅ getInfo
 - ✅ channelBalance
+- ✅ getNetwork
+- ✅ isMainnet
+- ✅ isSignet
 
 ### Receiving
 - ✅ addInvoice
 - ✅ lookupInvoiceV2
 - ✅ listInvoices
-- ✅ listPayments
 
-### Sending
+### Payments
+- ✅ listPayments
 - ✅ decodePayReq
 - ✅ estimateRouteFee
 - ✅ sendPaymentV2
@@ -225,8 +233,8 @@ const devConfig = getLndConfigWithFallback();
 ### Monitoring
 - ✅ subscribeInvoices
 - ✅ subscribeSingleInvoice
-- ✅ TrackPayments
-- ✅ TrackPaymentV2
+- ✅ trackPayments
+- ✅ trackPaymentV2
 
 ## License
 
