@@ -22,6 +22,32 @@ import {
 } from '../types/lnd';
 import { toUrlSafeBase64Format, hexToUrlSafeBase64 } from '../utils/base64Utils';
 
+// Handle WebSocket implementation differences
+// This dynamic approach ensures compatibility with both browser and Node.js environments
+let WebSocketImpl: any; // Using 'any' type to handle both browser WebSocket and Node.js ws package
+
+// Use the browser's WebSocket if available, otherwise use ws library
+if (typeof WebSocket !== 'undefined') {
+  // Browser environment - use global WebSocket
+  WebSocketImpl = WebSocket;
+} else {
+  try {
+    // Node.js environment - use ws package
+    // The dynamic require is necessary to avoid bundling issues in browser environments
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    WebSocketImpl = require('ws');
+  } catch (e) {
+    console.warn('WebSocket implementation not available');
+  }
+}
+
+// Constants for WebSocket states since they might differ across platforms
+// These ensure consistent behavior regardless of environment
+const WS_CONNECTING = 0;
+const WS_OPEN = 1;
+const WS_CLOSING = 2;
+const WS_CLOSED = 3;
+
 /**
  * A minimal EventEmitter implementation that works in both Node.js and browsers
  */
@@ -472,6 +498,28 @@ export class LndClient extends EventEmitter {
   }
 
   /**
+   * Add event listener to a WebSocket connection based on available method (for cross-platform support)
+   * This method abstracts the differences between browser WebSocket and Node.js ws package:
+   * - Browser WebSockets use addEventListener()
+   * - Node.js ws package uses on()
+   * 
+   * @param ws WebSocket connection
+   * @param event Event name ('open', 'message', 'error', 'close', etc.)
+   * @param callback Callback function to handle the event
+   */
+  private addEventListenerToWebSocket(ws: any, event: string, callback: (...args: any[]) => void): void {
+    if (typeof ws.addEventListener === 'function') {
+      // Browser WebSocket API
+      ws.addEventListener(event, callback);
+    } else if (typeof ws.on === 'function') {
+      // Node.js ws package
+      ws.on(event, callback);
+    } else {
+      console.warn(`Cannot attach ${event} listener - no suitable method found on WebSocket`);
+    }
+  }
+
+  /**
    * Create a new WebSocket connection
    * @param url REST API URL to connect to
    * @param headers HTTP headers for authentication
@@ -489,27 +537,35 @@ export class LndClient extends EventEmitter {
   ): WebSocket {
     const wsUrl = this.httpToWsUrl(url);
     
-    // Create WebSocket with browser-compatible approach
-    const ws = new WebSocket(wsUrl);
+    // Create WebSocket - handle different constructor signatures for browser vs Node.js
+    let ws: any;
     
-    // Set request headers if supported by the platform
-    // Note: Browsers don't support custom headers in WebSocket constructor
-    // This might require a proxy service for browser environments
-
+    if (typeof window !== 'undefined') {
+      // Browser environment - browsers don't support custom headers in WebSocket constructor
+      ws = new WebSocketImpl(wsUrl);
+    } else {
+      // Node.js environment - use the ws package which supports options
+      ws = new WebSocketImpl(wsUrl, { headers });
+    }
+    
     // Set up event listeners
-    ws.addEventListener('open', () => {
+    this.addEventListenerToWebSocket(ws, 'open', () => {
       // Reset retry attempts when connection is successful
       this.retryAttempts.set(url, 0);
       this.emit('open', { url });
     });
 
-    ws.addEventListener('error', (event) => {
+    this.addEventListenerToWebSocket(ws, 'error', (event) => {
       const error = new Error('WebSocket error occurred');
       this.emit('error', { url, error });
     });
 
-    ws.addEventListener('close', (event) => {
-      this.emit('close', { url, code: event.code, reason: event.reason });
+    this.addEventListenerToWebSocket(ws, 'close', (event) => {
+      // Handle cross-platform differences between browser & node.js WebSocket
+      const code = typeof event.code === 'number' ? event.code : 0;
+      const reason = typeof event.reason === 'string' ? event.reason : '';
+      
+      this.emit('close', { url, code, reason });
       this.connections.delete(url);
       
       // Implement retry logic if enabled
@@ -568,24 +624,28 @@ export class LndClient extends EventEmitter {
       
       // Attempt to reconnect
       const wsUrl = this.httpToWsUrl(url);
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocketImpl(wsUrl, typeof window === 'undefined' ? { headers } : undefined);
       
       // Set up event listeners on new connection
-      ws.addEventListener('open', () => {
+      this.addEventListenerToWebSocket(ws, 'open', () => {
         this.emit('open', { url, reconnected: true });
         this.connections.set(url, ws);
         this.retryAttempts.set(url, 0);
         this.retryIntervals.delete(url);
       });
       
-      ws.addEventListener('error', (event) => {
+      this.addEventListenerToWebSocket(ws, 'error', (event) => {
         const error = new Error('WebSocket error occurred during reconnection');
         this.emit('error', { url, error, reconnecting: true });
         // Let the close handler handle the retry
       });
       
-      ws.addEventListener('close', (event) => {
-        this.emit('close', { url, code: event.code, reason: event.reason, reconnecting: true });
+      this.addEventListenerToWebSocket(ws, 'close', (event) => {
+        // Handle cross-platform differences
+        const code = typeof event.code === 'number' ? event.code : 0;
+        const reason = typeof event.reason === 'string' ? event.reason : '';
+        
+        this.emit('close', { url, code, reason, reconnecting: true });
         this.connections.delete(url);
         // Try again
         this.retryConnection(url, headers, maxRetries, retryDelay);
@@ -639,7 +699,7 @@ export class LndClient extends EventEmitter {
    */
   public isConnectionActive(url: string): boolean {
     const connection = this.connections.get(url);
-    return connection !== undefined && connection.readyState === WebSocket.OPEN;
+    return connection !== undefined && connection.readyState === WS_OPEN;
   }
 
   /**
@@ -654,13 +714,13 @@ export class LndClient extends EventEmitter {
     }
 
     switch (connection.readyState) {
-      case WebSocket.CONNECTING:
+      case WS_CONNECTING:
         return 'CONNECTING';
-      case WebSocket.OPEN:
+      case WS_OPEN:
         return 'OPEN';
-      case WebSocket.CLOSING:
+      case WS_CLOSING:
         return 'CLOSING';
-      case WebSocket.CLOSED:
+      case WS_CLOSED:
         return 'CLOSED';
       default:
         return null;
@@ -668,169 +728,134 @@ export class LndClient extends EventEmitter {
   }
 
   /**
-   * Subscribe to all invoice updates
-   * Emits 'invoice' events when updates are received
-   * @param enableRetry Whether to automatically retry on disconnection
-   * @param maxRetries Maximum number of retry attempts
-   * @param retryDelay Base delay between retries in ms
-   * @returns URL of the subscription (used for closing the connection)
+   * Subscribe to all invoices
+   * @param enableRetry Whether to automatically retry on disconnection (default: true)
+   * @param maxRetries Maximum number of retry attempts (default: 5)
+   * @param retryDelay Base delay for retries in ms, will be increased exponentially (default: 1000)
+   * @returns URL of the subscription
    */
   public subscribeInvoices(
-    enableRetry: boolean = false,
+    enableRetry: boolean = true,
     maxRetries: number = this.defaultMaxRetries,
     retryDelay: number = this.defaultRetryDelay
   ): string {
-    // Get the base URL without the trailing slash
-    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
-    const url = `${baseUrl}/v1/invoices/subscribe`;
-    const headers = {
-      'Grpc-Metadata-macaroon': this.config.macaroon
-    };
-
+    const url = `${this.config.baseUrl}/v1/invoices/subscribe`;
+    const headers = this.getHeaders();
+    
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.addEventListener('message', (event) => {
+    this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
         const invoice = JSON.parse(event.data) as Invoice;
         this.emit('invoice', invoice);
       } catch (error) {
-        this.emit('error', { 
-          url, 
-          error: error instanceof Error ? error : new Error(String(error)), 
-          message: 'Failed to parse invoice data' 
-        });
+        this.emit('error', { url, error, message: 'Failed to parse invoice data' });
       }
     });
-
+    
     return url;
   }
 
   /**
-   * Subscribe to updates for a specific invoice
-   * Emits 'singleInvoice' events when updates are received
-   * @param paymentHash Payment hash of the invoice to track (hex format)
+   * Subscribe to a specific invoice
+   * @param paymentHash Payment hash of the invoice to subscribe to
    * @param enableRetry Whether to automatically retry on disconnection
    * @param maxRetries Maximum number of retry attempts
-   * @param retryDelay Base delay between retries in ms
-   * @returns URL of the subscription (used for closing the connection)
+   * @param retryDelay Base delay for retries in ms
+   * @returns URL of the subscription
    */
   public subscribeSingleInvoice(
     paymentHash: string,
-    enableRetry: boolean = false,
+    enableRetry: boolean = true,
     maxRetries: number = this.defaultMaxRetries,
     retryDelay: number = this.defaultRetryDelay
   ): string {
-    // Get the base URL without the trailing slash
-    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
+    const url = `${this.config.baseUrl}/v2/invoices/subscribe/${paymentHash}`;
+    const headers = this.getHeaders();
     
-    // Convert the payment hash to URL-safe base64 format
-    const urlSafeHash = toUrlSafeBase64Format(paymentHash);
-    
-    const url = `${baseUrl}/v2/invoices/subscribe/${urlSafeHash}`;
-    const headers = {
-      'Grpc-Metadata-macaroon': this.config.macaroon
-    };
-
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.addEventListener('message', (event) => {
+    this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
         const invoice = JSON.parse(event.data) as Invoice;
         this.emit('singleInvoice', invoice);
       } catch (error) {
-        this.emit('error', { 
-          url, 
-          error: error instanceof Error ? error : new Error(String(error)), 
-          message: 'Failed to parse invoice data' 
-        });
+        this.emit('error', { url, error, message: 'Failed to parse invoice data' });
       }
     });
-
+    
     return url;
   }
 
   /**
-   * Track updates for a specific payment
-   * Emits 'paymentUpdate' events when updates are received
-   * @param paymentHash Payment hash to track (hex format)
+   * Track a specific payment by hash
+   * @param paymentHash Payment hash to track
    * @param enableRetry Whether to automatically retry on disconnection
    * @param maxRetries Maximum number of retry attempts
-   * @param retryDelay Base delay between retries in ms
-   * @returns URL of the subscription (used for closing the connection)
+   * @param retryDelay Base delay for retries in ms
+   * @returns URL of the subscription
    */
   public trackPayments(
     paymentHash: string,
-    enableRetry: boolean = false,
+    enableRetry: boolean = true,
     maxRetries: number = this.defaultMaxRetries,
     retryDelay: number = this.defaultRetryDelay
   ): string {
-    // Get the base URL without the trailing slash
-    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
+    const url = `${this.config.baseUrl}/v2/router/track/${paymentHash}`;
+    const headers = this.getHeaders();
     
-    // Convert the payment hash to URL-safe base64 format
-    const urlSafeHash = toUrlSafeBase64Format(paymentHash);
-    
-    const url = `${baseUrl}/v2/router/track/${urlSafeHash}`;
-    const headers = {
-      'Grpc-Metadata-macaroon': this.config.macaroon
-    };
-
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.addEventListener('message', (event) => {
+    this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
-        const paymentUpdate = JSON.parse(event.data) as PaymentStatus;
-        this.emit('paymentUpdate', paymentUpdate);
+        const paymentStatus = JSON.parse(event.data) as PaymentStatus;
+        this.emit('paymentStatus', paymentStatus);
       } catch (error) {
-        this.emit('error', { 
-          url, 
-          error: error instanceof Error ? error : new Error(String(error)), 
-          message: 'Failed to parse payment data' 
-        });
+        this.emit('error', { url, error, message: 'Failed to parse payment status data' });
       }
     });
-
+    
     return url;
   }
 
   /**
-   * Track updates for all payments (TrackPaymentV2)
-   * Emits 'paymentUpdate' events when updates are received
-   * @param noInflightUpdates If true, do not include updates for payments that are currently in-flight
+   * Track all payments
+   * @param noInflightUpdates Whether to exclude in-flight payment updates
    * @param enableRetry Whether to automatically retry on disconnection
    * @param maxRetries Maximum number of retry attempts
-   * @param retryDelay Base delay between retries in ms
-   * @returns URL of the subscription (used for closing the connection)
+   * @param retryDelay Base delay for retries in ms
+   * @returns URL of the subscription
    */
   public trackPaymentV2(
     noInflightUpdates: boolean = false,
-    enableRetry: boolean = false,
+    enableRetry: boolean = true,
     maxRetries: number = this.defaultMaxRetries,
     retryDelay: number = this.defaultRetryDelay
   ): string {
-    // Get the base URL without the trailing slash
-    const baseUrl = this.config.baseUrl.replace(/\/$/, '');
+    const url = `${this.config.baseUrl}/v2/router/trackpayments?no_inflight_updates=${noInflightUpdates}`;
+    const headers = this.getHeaders();
     
-    const url = `${baseUrl}/v2/router/trackpayments?no_inflight_updates=${noInflightUpdates}`;
-    const headers = {
-      'Grpc-Metadata-macaroon': this.config.macaroon
-    };
-
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.addEventListener('message', (event) => {
+    this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
         const paymentUpdate = JSON.parse(event.data) as PaymentStatus;
         this.emit('paymentUpdate', paymentUpdate);
       } catch (error) {
-        this.emit('error', { 
-          url, 
-          error: error instanceof Error ? error : new Error(String(error)), 
-          message: 'Failed to parse payment data' 
-        });
+        this.emit('error', { url, error, message: 'Failed to parse payment update data' });
       }
     });
-
+    
     return url;
+  }
+
+  /**
+   * Get the standard headers for LND REST API requests
+   * @returns HTTP headers object
+   */
+  private getHeaders(): Record<string, string> {
+    return {
+      'Grpc-Metadata-macaroon': this.config.macaroon
+    };
   }
 }

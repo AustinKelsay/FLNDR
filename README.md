@@ -424,3 +424,84 @@ async function checkNetwork() {
 checkNetwork();
 ```
 
+## WebSocket Streaming Support
+
+FLNDR provides real-time streaming capabilities using WebSockets for various LND events. The library is designed to work seamlessly in both Node.js and browser environments, with automatic environment detection.
+
+### Available Streaming Methods
+
+- **subscribeInvoices()**: Subscribe to all invoice updates
+- **subscribeSingleInvoice(paymentHash)**: Subscribe to updates for a specific invoice
+- **trackPayments(paymentHash)**: Track updates for a specific payment
+- **trackPaymentV2(noInflightUpdates)**: Track all outgoing payments
+
+### Cross-Platform Support
+
+The library automatically detects whether it's running in a browser or Node.js environment and uses the appropriate WebSocket implementation:
+
+- In **browsers**, it uses the native `WebSocket` API
+- In **Node.js**, it uses the `ws` package
+
+### Example Usage
+
+```typescript
+import { LndClient } from 'flndr';
+
+const lndClient = new LndClient({
+  baseUrl: 'https://your-lnd-node:8080',
+  macaroon: 'your-hex-encoded-macaroon'
+});
+
+// Subscribe to all invoice updates
+const subscriptionUrl = lndClient.subscribeInvoices();
+
+// Listen for invoice events
+lndClient.on('invoice', (invoice) => {
+  console.log('New invoice update:', invoice);
+});
+
+// To later close the connection
+lndClient.closeConnection(subscriptionUrl);
+
+// Or close all active connections
+lndClient.closeAllConnections();
+```
+
+### Browser Considerations
+
+As mentioned in the Browser Compatibility section, browsers cannot set custom headers in WebSocket constructors. For streaming connections, you'll need a proxy server that can:
+
+1. Accept the WebSocket connection from the browser
+2. Add the macaroon authentication header
+3. Forward the connection to your LND node
+
+For an example proxy setup, see the Browser CORS Considerations section.
+
+### Reconnection Handling
+
+All streaming methods support automatic reconnection in case of disconnection:
+
+```typescript
+// Enable automatic reconnection with custom parameters
+const url = lndClient.subscribeInvoices(
+  true,           // enableRetry
+  10,             // maxRetries
+  2000            // retryDelay in ms
+);
+
+// The client will automatically attempt to reconnect if the connection is lost
+// with exponential backoff (delay doubles after each retry)
+```
+
+### Connection Management
+
+The library provides methods to manage WebSocket connections:
+
+```typescript
+// Check if a connection is active
+const isActive = lndClient.isConnectionActive(url);
+
+// Get the status of a connection
+const status = lndClient.getConnectionStatus(url); // Returns 'CONNECTING', 'OPEN', 'CLOSING', 'CLOSED', or null
+```
+

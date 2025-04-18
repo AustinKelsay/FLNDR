@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, AxiosInstance } from 'axios';
 import WebSocket from 'ws';
 import { LndClient } from '../../services/lndClient';
 import { hexToUrlSafeBase64 } from '../../utils/base64Utils';
@@ -18,28 +18,23 @@ import {
 import { EventEmitter } from 'events';
 
 // Mock axios
-jest.mock('axios', () => ({
-  create: jest.fn(() => ({
+jest.mock('axios', () => {
+  const mockAxiosInstance = {
     get: jest.fn(),
     post: jest.fn(),
-  })),
-  isAxiosError: jest.fn(),
-}));
+  };
+  
+  return {
+    create: jest.fn(() => mockAxiosInstance),
+    isAxiosError: jest.fn(),
+  };
+});
 
 // Mock WebSocket
 jest.mock('ws');
 
-// Get the mocked axios instance
-const mockedAxios = {
-  get: jest.fn(),
-  post: jest.fn(),
-};
-
-// Cast the mocked WebSocket class
-const MockedWebSocket = WebSocket as jest.MockedClass<typeof WebSocket>;
-
-// Mock axios.create to return our mockedAxios
-(axios.create as jest.Mock).mockReturnValue(mockedAxios);
+// Get the mocked instances
+const mockedAxios = axios.create() as jest.Mocked<AxiosInstance>;
 
 // Cast the mocked function with proper typing
 const mockedIsAxiosError = axios.isAxiosError as jest.MockedFunction<typeof axios.isAxiosError>;
@@ -611,8 +606,9 @@ describe('LndClient', () => {
         configurable: true
       });
 
-      // Make the WebSocket constructor return our mock
-      MockedWebSocket.mockImplementation(() => mockWs);
+      // Get the WebSocket constructor mock and set its return value
+      const WsModule = jest.requireMock('ws');
+      WsModule.WebSocket.mockReturnValue(mockWs);
     });
 
     describe('subscribeInvoices', () => {
@@ -621,7 +617,7 @@ describe('LndClient', () => {
         const url = lndClient.subscribeInvoices();
 
         // Verify WebSocket creation
-        expect(MockedWebSocket).toHaveBeenCalledWith(
+        expect(WebSocket).toHaveBeenCalledWith(
           'wss://test-lnd-node:8080/v1/invoices/subscribe',
           { headers: { 'Grpc-Metadata-macaroon': 'test-macaroon-hex' } }
         );
@@ -647,7 +643,7 @@ describe('LndClient', () => {
         } as Invoice;
 
         // Simulate the message event
-        mockWs.emit('message', JSON.stringify(mockInvoice));
+        mockWs.emit('message', { data: JSON.stringify(mockInvoice) });
 
         // Verify that the invoice event was emitted
         expect(emitSpy).toHaveBeenCalledWith('invoice', mockInvoice);
@@ -661,7 +657,7 @@ describe('LndClient', () => {
         const url = lndClient.subscribeSingleInvoice(paymentHash);
 
         // Verify WebSocket creation with URL-safe base64 conversion
-        expect(MockedWebSocket).toHaveBeenCalledWith(
+        expect(WebSocket).toHaveBeenCalledWith(
           expect.stringContaining('/v2/invoices/subscribe/'),
           expect.anything()
         );
@@ -677,7 +673,7 @@ describe('LndClient', () => {
         const url = lndClient.trackPaymentV2();
 
         // Verify WebSocket creation
-        expect(MockedWebSocket).toHaveBeenCalledWith(
+        expect(WebSocket).toHaveBeenCalledWith(
           'wss://test-lnd-node:8080/v2/router/trackpayments?no_inflight_updates=false',
           expect.anything()
         );
@@ -702,7 +698,7 @@ describe('LndClient', () => {
         };
 
         // Simulate receiving a message
-        mockWs.emit('message', JSON.stringify(mockPayment));
+        mockWs.emit('message', { data: JSON.stringify(mockPayment) });
 
         // Verify that the payment update event was emitted
         expect(emitSpy).toHaveBeenCalledWith('paymentUpdate', mockPayment);

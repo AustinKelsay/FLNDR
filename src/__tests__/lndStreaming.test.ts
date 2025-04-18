@@ -1,8 +1,28 @@
 import { LndClient } from '../services/lndClient';
 import WebSocket from 'ws';
 
-// Mock WebSocket to avoid actual connections during tests
-jest.mock('ws');
+// Create a proper mock for WebSocket that works with Jest spying
+const mockClose = jest.fn();
+const mockOn = jest.fn();
+const mockAddEventListener = jest.fn();
+
+// Create a mock implementation of WebSocket
+jest.mock('ws', () => {
+  return jest.fn().mockImplementation(() => {
+    return {
+      close: mockClose,
+      on: mockOn,
+      addEventListener: mockAddEventListener,
+      readyState: 1, // WebSocket.OPEN
+    };
+  });
+});
+
+// Manually add the WebSocket static constants for tests
+(WebSocket as any).CONNECTING = 0;
+(WebSocket as any).OPEN = 1;
+(WebSocket as any).CLOSING = 2;
+(WebSocket as any).CLOSED = 3;
 
 describe('LndClient Streaming', () => {
   let lndClient: LndClient;
@@ -14,15 +34,6 @@ describe('LndClient Streaming', () => {
     lndClient = new LndClient({
       baseUrl: mockBaseUrl,
       macaroon: mockMacaroon
-    });
-    
-    // Mock the WebSocket implementation
-    (WebSocket as jest.MockedClass<typeof WebSocket>).mockImplementation(() => {
-      const mockWs = {
-        on: jest.fn(),
-        close: jest.fn(),
-      } as unknown as WebSocket;
-      return mockWs;
     });
   });
   
@@ -108,13 +119,6 @@ describe('LndClient Streaming', () => {
   
   describe('closeConnection', () => {
     it('should close a specific connection by URL', () => {
-      // Set up mock WebSocket
-      const mockWs = {
-        on: jest.fn(),
-        close: jest.fn(),
-      } as unknown as WebSocket;
-      (WebSocket as jest.MockedClass<typeof WebSocket>).mockImplementationOnce(() => mockWs);
-      
       // Create a connection
       const url = lndClient.subscribeInvoices();
       
@@ -122,26 +126,12 @@ describe('LndClient Streaming', () => {
       lndClient.closeConnection(url);
       
       // Verify close was called
-      expect(mockWs.close).toHaveBeenCalled();
+      expect(mockClose).toHaveBeenCalled();
     });
   });
   
   describe('closeAllConnections', () => {
     it('should close all active connections', () => {
-      // Set up multiple mock WebSockets
-      const mockWs1 = {
-        on: jest.fn(),
-        close: jest.fn(),
-      } as unknown as WebSocket;
-      const mockWs2 = {
-        on: jest.fn(),
-        close: jest.fn(),
-      } as unknown as WebSocket;
-      
-      (WebSocket as jest.MockedClass<typeof WebSocket>)
-        .mockImplementationOnce(() => mockWs1)
-        .mockImplementationOnce(() => mockWs2);
-      
       // Create multiple connections
       lndClient.subscribeInvoices();
       lndClient.trackPaymentV2();
@@ -149,9 +139,8 @@ describe('LndClient Streaming', () => {
       // Close all connections
       lndClient.closeAllConnections();
       
-      // Verify all close methods were called
-      expect(mockWs1.close).toHaveBeenCalled();
-      expect(mockWs2.close).toHaveBeenCalled();
+      // Verify all close methods were called - mockClose is called twice
+      expect(mockClose).toHaveBeenCalledTimes(2);
     });
   });
 }); 
