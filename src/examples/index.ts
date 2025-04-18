@@ -29,9 +29,9 @@ import mockedStreamingExample from './monitoring/mockedStreamingExample';
  * Run all examples in sequence
  */
 async function runExamples() {
-  console.log('='.repeat(50));
+  console.log('='.repeat(10));
   console.log('FLNDR SDK Examples');
-  console.log('='.repeat(50));
+  console.log('='.repeat(10));
   
   try {
     // Check if valid environment variables are set
@@ -49,43 +49,43 @@ async function runExamples() {
     
     // Info examples
     console.log('\n1️⃣ Running Info Examples:');
-    console.log('-'.repeat(50));
+    console.log('-'.repeat(10));
     await getInfoExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(10));
     await channelBalanceExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(10));
     await networkDetectionExample();
     
     // Receiving examples
     console.log('\n\n2️⃣ Running Receiving Examples:');
-    console.log('-'.repeat(50));
+    console.log('-'.repeat(10));
     await addInvoiceExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(10));
     await lookupInvoiceExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(10));
     await listInvoicesExample();
     
     // Payment examples
     console.log('\n\n3️⃣ Running Payment Examples:');
-    console.log('-'.repeat(50));
+    console.log('-'.repeat(10));
     await listPaymentsExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(10));
     await decodePayReqExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(10));
     await estimateRouteFeeExample();
     
-    console.log('\n-'.repeat(50));
+    console.log('\n-'.repeat(10));
     await sendPaymentExample();
     
     // Monitoring examples
     console.log('\n\n4️⃣ About Monitoring Examples:');
-    console.log('-'.repeat(50));
+    console.log('-'.repeat(10));
     console.log('The streaming examples create long-running WebSocket connections');
     console.log('and are designed to be run separately. To run them, use:');
     console.log('npx ts-node src/examples/monitoring/streamingExample.ts');
@@ -112,9 +112,9 @@ async function runExamples() {
       console.log('npx ts-node src/examples/monitoring/mockedStreamingExample.ts');
     }
     
-    console.log('\n='.repeat(50));
+    console.log('\n='.repeat(10));
     console.log('✅ All examples completed successfully!');
-    console.log('='.repeat(50));
+    console.log('='.repeat(10));
   } catch (error) {
     console.error('\n❌ Error running examples:', error);
     process.exit(1);

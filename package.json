@@ -16,7 +16,7 @@
     "prepublishOnly": "npm run build && npm run build:browser",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
-    "examples": "ts-node src/examples/runAll.ts"
+    "examples": "ts-node src/examples/index.ts"
   },
   "keywords": [
     "lightning",
