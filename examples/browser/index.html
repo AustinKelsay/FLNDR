@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLNDR Browser Example</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .error {
+            color: #d9534f;
+            background-color: #f9f2f2;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .success {
+            color: #5cb85c;
+            background-color: #f2f9f2;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        #connection-form {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0 15px;
+            display: block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>FLNDR Browser Example</h1>
+    
+    <div id="connection-form">
+        <h2>LND Connection Configuration</h2>
+        <p>This example requires a proxy to handle CORS and authentication. See the README for setting up a proxy.</p>
+        
+        <label for="base-url">LND API URL (through proxy):</label>
+        <input type="text" id="base-url" placeholder="http://localhost:3000/lnd" value="http://localhost:3000/lnd">
+        
+        <label for="macaroon">Macaroon (if not handled by proxy):</label>
+        <input type="text" id="macaroon" placeholder="Leave empty if handled by proxy">
+        
+        <button id="connect-btn">Connect & Get Node Info</button>
+    </div>
+    
+    <h2>Response:</h2>
+    <pre id="response">// Node information will appear here</pre>
+    
+    <script type="module">
+        // If using ES modules from a CDN
+        // import { LndClient, getLndBrowserConfig } from 'https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js';
+        
+        // For this example, we'll assume the script is loaded via a <script> tag
+        document.getElementById('connect-btn').addEventListener('click', async () => {
+            const baseUrl = document.getElementById('base-url').value;
+            const macaroon = document.getElementById('macaroon').value;
+            const responseElement = document.getElementById('response');
+            
+            if (!baseUrl) {
+                responseElement.innerHTML = '<div class="error">Please enter an LND API URL</div>';
+                return;
+            }
+            
+            try {
+                responseElement.innerHTML = 'Connecting to LND...';
+                
+                // Create the LND client
+                const lndClient = new FLNDR.LndClient({
+                    baseUrl,
+                    macaroon: macaroon || undefined
+                });
+                
+                // Get node info
+                const info = await lndClient.getInfo();
+                
+                // Display the response
+                responseElement.innerHTML = '<div class="success">Connected successfully!</div>\n' + 
+                    JSON.stringify(info, null, 2);
+                
+                // Add additional node information
+                try {
+                    const network = await lndClient.getNetwork();
+                    const isMainnet = await lndClient.isMainnet();
+                    const isSignet = await lndClient.isSignet();
+                    
+                    const networkInfo = {
+                        network,
+                        isMainnet,
+                        isSignet
+                    };
+                    
+                    responseElement.innerHTML += '\n\n// Network Information:\n' + 
+                        JSON.stringify(networkInfo, null, 2);
+                } catch (networkError) {
+                    console.error('Failed to get network info:', networkError);
+                }
+                
+            } catch (error) {
+                console.error('Error connecting to LND:', error);
+                responseElement.innerHTML = '<div class="error">Failed to connect: ' + 
+                    (error.message || 'Unknown error') + '</div>';
+            }
+        });
+    </script>
+    
+    <!-- Load the library from CDN for this example -->
+    <script src="https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.min.js"></script>
+</body>
+</html> 

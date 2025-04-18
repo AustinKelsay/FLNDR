@@ -1,6 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { EventEmitter } from 'events';
-import WebSocket from 'ws';
+// Import all the other required types
 import { 
   LndConnectionConfig, 
   GetInfoResponse,
@@ -22,6 +21,66 @@ import {
   PaymentStatus
 } from '../types/lnd';
 import { toUrlSafeBase64Format, hexToUrlSafeBase64 } from '../utils/base64Utils';
+
+/**
+ * A minimal EventEmitter implementation that works in both Node.js and browsers
+ */
+class EventEmitter {
+  private events: Record<string | symbol, Array<(...args: any[]) => void>> = {};
+
+  on(event: string | symbol, listener: (...args: any[]) => void): this {
+    if (!this.events[event]) {
+      this.events[event] = [];
+    }
+    this.events[event].push(listener);
+    return this;
+  }
+
+  off(event: string | symbol, listener: (...args: any[]) => void): this {
+    if (!this.events[event]) {
+      return this;
+    }
+
+    const idx = this.events[event].indexOf(listener);
+    if (idx !== -1) {
+      this.events[event].splice(idx, 1);
+    }
+    return this;
+  }
+
+  once(event: string | symbol, listener: (...args: any[]) => void): this {
+    const onceWrapper = (...args: any[]) => {
+      listener(...args);
+      this.off(event, onceWrapper);
+    };
+    return this.on(event, onceWrapper);
+  }
+
+  emit(event: string | symbol, ...args: any[]): boolean {
+    if (!this.events[event]) {
+      return false;
+    }
+
+    const listeners = [...this.events[event]];
+    for (const listener of listeners) {
+      listener(...args);
+    }
+    return true;
+  }
+
+  removeAllListeners(event?: string | symbol): this {
+    if (event) {
+      this.events[event] = [];
+    } else {
+      this.events = {};
+    }
+    return this;
+  }
+
+  listeners(event: string | symbol): Array<(...args: any[]) => void> {
+    return this.events[event] || [];
+  }
+}
 
 /**
  * LndStreamingEvents defines the events that can be emitted by LndClient for streaming connections
@@ -47,7 +106,8 @@ export class LndClient extends EventEmitter {
   
   // Streaming-related properties
   private connections: Map<string, WebSocket> = new Map();
-  private retryIntervals: Map<string, NodeJS.Timeout> = new Map();
+  // Use number instead of NodeJS.Timeout for browser compatibility
+  private retryIntervals: Map<string, number> = new Map();
   private retryAttempts: Map<string, number> = new Map();
   // Default max retry count
   private readonly defaultMaxRetries: number = 5;
@@ -429,21 +489,27 @@ export class LndClient extends EventEmitter {
   ): WebSocket {
     const wsUrl = this.httpToWsUrl(url);
     
-    const ws = new WebSocket(wsUrl, { headers });
+    // Create WebSocket with browser-compatible approach
+    const ws = new WebSocket(wsUrl);
+    
+    // Set request headers if supported by the platform
+    // Note: Browsers don't support custom headers in WebSocket constructor
+    // This might require a proxy service for browser environments
 
     // Set up event listeners
-    ws.on('open', () => {
+    ws.addEventListener('open', () => {
       // Reset retry attempts when connection is successful
       this.retryAttempts.set(url, 0);
       this.emit('open', { url });
     });
 
-    ws.on('error', (error: Error) => {
+    ws.addEventListener('error', (event) => {
+      const error = new Error('WebSocket error occurred');
       this.emit('error', { url, error });
     });
 
-    ws.on('close', (code: number, reason: string) => {
-      this.emit('close', { url, code, reason });
+    ws.addEventListener('close', (event) => {
+      this.emit('close', { url, code: event.code, reason: event.reason });
       this.connections.delete(url);
       
       // Implement retry logic if enabled
@@ -496,29 +562,30 @@ export class LndClient extends EventEmitter {
     // Calculate delay with exponential backoff (2^attempt * delay)
     const delay = retryDelay * Math.pow(2, attemptCount);
     
-    // Set timeout for retry
-    const timeoutId = setTimeout(() => {
+    // Set timeout for retry - store timeout ID as number
+    const timeoutId = window.setTimeout(() => {
       this.emit('open', { url, reconnecting: true, attempt: attemptCount + 1 });
       
       // Attempt to reconnect
       const wsUrl = this.httpToWsUrl(url);
-      const ws = new WebSocket(wsUrl, { headers });
+      const ws = new WebSocket(wsUrl);
       
       // Set up event listeners on new connection
-      ws.on('open', () => {
+      ws.addEventListener('open', () => {
         this.emit('open', { url, reconnected: true });
         this.connections.set(url, ws);
         this.retryAttempts.set(url, 0);
         this.retryIntervals.delete(url);
       });
       
-      ws.on('error', (error: Error) => {
+      ws.addEventListener('error', (event) => {
+        const error = new Error('WebSocket error occurred during reconnection');
         this.emit('error', { url, error, reconnecting: true });
         // Let the close handler handle the retry
       });
       
-      ws.on('close', (code: number, reason: string) => {
-        this.emit('close', { url, code, reason, reconnecting: true });
+      ws.addEventListener('close', (event) => {
+        this.emit('close', { url, code: event.code, reason: event.reason, reconnecting: true });
         this.connections.delete(url);
         // Try again
         this.retryConnection(url, headers, maxRetries, retryDelay);
@@ -622,12 +689,16 @@ export class LndClient extends EventEmitter {
 
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.on('message', (data: WebSocket.Data) => {
+    ws.addEventListener('message', (event) => {
       try {
-        const invoice = JSON.parse(data.toString()) as Invoice;
+        const invoice = JSON.parse(event.data) as Invoice;
         this.emit('invoice', invoice);
       } catch (error) {
-        this.emit('error', { url, error, message: 'Failed to parse invoice data' });
+        this.emit('error', { 
+          url, 
+          error: error instanceof Error ? error : new Error(String(error)), 
+          message: 'Failed to parse invoice data' 
+        });
       }
     });
 
@@ -662,12 +733,16 @@ export class LndClient extends EventEmitter {
 
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.on('message', (data: WebSocket.Data) => {
+    ws.addEventListener('message', (event) => {
       try {
-        const invoice = JSON.parse(data.toString()) as Invoice;
+        const invoice = JSON.parse(event.data) as Invoice;
         this.emit('singleInvoice', invoice);
       } catch (error) {
-        this.emit('error', { url, error, message: 'Failed to parse invoice data' });
+        this.emit('error', { 
+          url, 
+          error: error instanceof Error ? error : new Error(String(error)), 
+          message: 'Failed to parse invoice data' 
+        });
       }
     });
 
@@ -702,12 +777,16 @@ export class LndClient extends EventEmitter {
 
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.on('message', (data: WebSocket.Data) => {
+    ws.addEventListener('message', (event) => {
       try {
-        const paymentUpdate = JSON.parse(data.toString()) as PaymentStatus;
+        const paymentUpdate = JSON.parse(event.data) as PaymentStatus;
         this.emit('paymentUpdate', paymentUpdate);
       } catch (error) {
-        this.emit('error', { url, error, message: 'Failed to parse payment data' });
+        this.emit('error', { 
+          url, 
+          error: error instanceof Error ? error : new Error(String(error)), 
+          message: 'Failed to parse payment data' 
+        });
       }
     });
 
@@ -739,12 +818,16 @@ export class LndClient extends EventEmitter {
 
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
-    ws.on('message', (data: WebSocket.Data) => {
+    ws.addEventListener('message', (event) => {
       try {
-        const paymentUpdate = JSON.parse(data.toString()) as PaymentStatus;
+        const paymentUpdate = JSON.parse(event.data) as PaymentStatus;
         this.emit('paymentUpdate', paymentUpdate);
       } catch (error) {
-        this.emit('error', { url, error, message: 'Failed to parse payment data' });
+        this.emit('error', { 
+          url, 
+          error: error instanceof Error ? error : new Error(String(error)), 
+          message: 'Failed to parse payment data' 
+        });
       }
     });
 
