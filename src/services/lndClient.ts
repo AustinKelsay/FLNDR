@@ -132,8 +132,8 @@ export class LndClient extends EventEmitter {
   
   // Streaming-related properties
   private connections: Map<string, WebSocket> = new Map();
-  // Use number instead of NodeJS.Timeout for browser compatibility
-  private retryIntervals: Map<string, number> = new Map();
+  // Update type to handle both browser number and Node.js Timeout
+  private retryIntervals: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private retryAttempts: Map<string, number> = new Map();
   // Default max retry count
   private readonly defaultMaxRetries: number = 5;
@@ -153,7 +153,13 @@ export class LndClient extends EventEmitter {
       headers: {
         'Grpc-Metadata-macaroon': config.macaroon,
       },
-      httpsAgent: config.tlsCert ? undefined : undefined, // TLS implementation can be added here
+      httpsAgent: config.tlsCert && typeof process !== 'undefined' ? 
+        // Only create HTTPS agent in Node.js environment and when cert is provided
+        new (require('https').Agent)({
+          ca: config.tlsCert,
+          rejectUnauthorized: true
+        }) : 
+        undefined,
     });
   }
 
@@ -619,7 +625,7 @@ export class LndClient extends EventEmitter {
     const delay = retryDelay * Math.pow(2, attemptCount);
     
     // Set timeout for retry - store timeout ID as number
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       this.emit('open', { url, reconnecting: true, attempt: attemptCount + 1 });
       
       // Attempt to reconnect
@@ -746,7 +752,7 @@ export class LndClient extends EventEmitter {
     
     this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
-        const invoice = JSON.parse(event.data) as Invoice;
+        const invoice = this.parseWebSocketMessage(event) as Invoice;
         this.emit('invoice', invoice);
       } catch (error) {
         this.emit('error', { url, error, message: 'Failed to parse invoice data' });
@@ -777,7 +783,7 @@ export class LndClient extends EventEmitter {
     
     this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
-        const invoice = JSON.parse(event.data) as Invoice;
+        const invoice = this.parseWebSocketMessage(event) as Invoice;
         this.emit('singleInvoice', invoice);
       } catch (error) {
         this.emit('error', { url, error, message: 'Failed to parse invoice data' });
@@ -808,7 +814,7 @@ export class LndClient extends EventEmitter {
     
     this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
-        const paymentStatus = JSON.parse(event.data) as PaymentStatus;
+        const paymentStatus = this.parseWebSocketMessage(event) as PaymentStatus;
         this.emit('paymentStatus', paymentStatus);
       } catch (error) {
         this.emit('error', { url, error, message: 'Failed to parse payment status data' });
@@ -839,7 +845,7 @@ export class LndClient extends EventEmitter {
     
     this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
-        const paymentUpdate = JSON.parse(event.data) as PaymentStatus;
+        const paymentUpdate = this.parseWebSocketMessage(event) as PaymentStatus;
         this.emit('paymentUpdate', paymentUpdate);
       } catch (error) {
         this.emit('error', { url, error, message: 'Failed to parse payment update data' });
@@ -857,5 +863,27 @@ export class LndClient extends EventEmitter {
     return {
       'Grpc-Metadata-macaroon': this.config.macaroon
     };
+  }
+
+  /**
+   * Handle WebSocket message data accounting for browser vs Node.js differences
+   * @param eventData The data from the message event
+   * @returns Parsed data object
+   */
+  private parseWebSocketMessage(eventData: any): any {
+    // In browser, event.data contains the data
+    // In Node.js ws package, the data might be passed directly
+    const data = typeof eventData === 'object' && eventData.data !== undefined
+      ? eventData.data  // Browser format: event.data
+      : eventData;      // Node.js format: data directly
+      
+    // Handle different data types (string vs Buffer)
+    if (typeof data === 'string') {
+      return JSON.parse(data);
+    } else if (Buffer && (data instanceof Buffer || Buffer.isBuffer(data))) {
+      return JSON.parse(data.toString());
+    } else {
+      throw new Error('Unsupported message data format');
+    }
   }
 }
