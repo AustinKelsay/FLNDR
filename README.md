@@ -311,22 +311,49 @@ You can import FLNDR in browsers using different methods:
 npm install flndr
 ```
 
-Then import the browser version:
+Then import the library:
 
 ```javascript
 // ESM import (recommended)
 import { LndClient, getLndBrowserConfig } from 'flndr';
 
-// Or using require with a bundler that supports it
-const { LndClient, getLndBrowserConfig } = require('flndr/browser');
+// Or explicitly use the browser version
+import { LndClient, getLndBrowserConfig } from 'flndr/browser';
+
+// If your bundler supports CommonJS
+const { LndClient } = require('flndr');
 ```
 
-#### Using a CDN
-
-For quick prototypes, you can load FLNDR directly from a CDN:
+#### Using ES modules directly in browser
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.min.js"></script>
+<script type="module">
+  // Import directly from a CDN
+  import { LndClient } from 'https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js';
+  
+  const lndClient = new LndClient({
+    baseUrl: 'https://your-lnd-proxy:8080',
+    macaroon: 'your-hex-encoded-macaroon'
+  });
+  
+  // Use the client
+  lndClient.getInfo()
+    .then(info => console.log(info))
+    .catch(err => console.error(err));
+</script>
+```
+
+#### Using script tags
+
+```html
+<!-- For modern browsers that support ES modules -->
+<script type="module">
+  import { LndClient } from './node_modules/flndr/dist/browser.js';
+  // Use LndClient
+</script>
+
+<!-- For legacy browsers using UMD bundle from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js"></script>
 <script>
   // FLNDR is available as a global variable
   const { LndClient } = FLNDR;

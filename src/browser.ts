@@ -4,25 +4,33 @@
  */
 
 // Export the LndClient class and related interfaces
-export { LndClient } from './services/lndClient';
-export type { LndStreamingEvents } from './services/lndClient';
-
-// Export all type definitions
-export * from './types/lnd';
-
-// Export browser-specific utilities
-export {
+import { LndClient } from './services/lndClient';
+import { 
   createBrowserConfig,
   getLndBrowserConfig,
   isBrowser,
   loadLndConfigFromWindow
 } from './utils/browserConfig';
 
-// Export base64 utilities that are used in both environments
-export {
+import {
   toUrlSafeBase64Format,
   hexToUrlSafeBase64
 } from './utils/base64Utils';
+
+// Export all components
+export { 
+  LndClient,
+  createBrowserConfig,
+  getLndBrowserConfig,
+  isBrowser,
+  loadLndConfigFromWindow,
+  toUrlSafeBase64Format,
+  hexToUrlSafeBase64
+};
+
+// Export all type definitions
+export * from './types/lnd';
+export type { LndStreamingEvents } from './services/lndClient';
 
 /**
  * Library version

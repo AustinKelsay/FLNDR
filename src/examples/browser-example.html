@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FLNDR Browser Example</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+    .output {
+      background-color: #f0f8ff;
+      padding: 15px;
+      border-radius: 5px;
+      margin-top: 20px;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 10px 2px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>FLNDR Browser Example</h1>
+  
+  <p>This example demonstrates how to use FLNDR in a browser environment. It shows two approaches:</p>
+  <ol>
+    <li>Using ES Module imports directly</li>
+    <li>Using global window configuration</li>
+  </ol>
+
+  <h2>1. Using ES Module Imports</h2>
+  <pre>
+import { LndClient } from 'flndr';
+
+const lndClient = new LndClient({
+  baseUrl: 'https://your-lnd-proxy:8080',
+  macaroon: 'your-hex-encoded-macaroon',
+  network: 'mainnet'
+});
+
+lndClient.getInfo()
+  .then(info => console.log(info))
+  .catch(err => console.error(err));
+  </pre>
+
+  <h2>2. Using Window Configuration</h2>
+  <p>First, set the global configuration:</p>
+  <pre>
+window.lndConfig = {
+  baseUrl: 'https://your-lnd-proxy:8080',
+  macaroon: 'your-hex-encoded-macaroon',
+  network: 'mainnet'
+};
+  </pre>
+
+  <p>Then use it in your code:</p>
+  <pre>
+import { LndClient, getLndBrowserConfig } from 'flndr';
+
+// This will automatically read from window.lndConfig
+const config = getLndBrowserConfig();
+const lndClient = new LndClient(config);
+
+lndClient.getInfo()
+  .then(info => console.log(info))
+  .catch(err => console.error(err));
+  </pre>
+
+  <h2>Live Demo</h2>
+  <p>This demo creates a mock client without connecting to a real LND node:</p>
+  
+  <button id="demo-button">Run Demo</button>
+  
+  <div id="output" class="output">
+    <p>Output will appear here...</p>
+  </div>
+
+  <script type="module">
+    // This script demonstrates how to use FLNDR in a browser
+    // In a real application, you would import from your node_modules
+    // import { LndClient } from './node_modules/flndr/dist/browser.js';
+    
+    // Mock implementation for demo purposes
+    class MockLndClient {
+      constructor(config) {
+        this.config = config;
+        console.log('Created client with config:', config);
+      }
+      
+      getInfo() {
+        return Promise.resolve({
+          version: '0.15.5-beta',
+          identity_pubkey: 'abcdef1234567890',
+          alias: 'my-lnd-node',
+          color: '#3399ff',
+          num_active_channels: 5,
+          chains: [{ chain: 'bitcoin', network: 'mainnet' }]
+        });
+      }
+      
+      getNetwork() {
+        return Promise.resolve('mainnet');
+      }
+    }
+
+    // Set up demo
+    document.getElementById('demo-button').addEventListener('click', async () => {
+      const output = document.getElementById('output');
+      
+      try {
+        // Method 1: Direct configuration
+        const client1 = new MockLndClient({
+          baseUrl: 'https://demo-lnd-proxy.example.com',
+          macaroon: '0123456789abcdef', 
+          network: 'mainnet'
+        });
+        
+        const info = await client1.getInfo();
+        
+        // Method 2: Window configuration
+        window.lndConfig = {
+          baseUrl: 'https://window-config-demo.example.com',
+          macaroon: 'fedcba9876543210',
+          network: 'mainnet'
+        };
+        
+        // In real app, you would use getLndBrowserConfig()
+        const config = window.lndConfig;
+        const client2 = new MockLndClient(config);
+        
+        const network = await client2.getNetwork();
+        
+        // Display results
+        output.innerHTML = `
+          <h3>Method 1: Direct Configuration</h3>
+          <pre>${JSON.stringify(info, null, 2)}</pre>
+          
+          <h3>Method 2: Window Configuration</h3>
+          <pre>Network: ${network}</pre>
+          <pre>Config: ${JSON.stringify(config, null, 2)}</pre>
+        `;
+      } catch (error) {
+        output.innerHTML = `<p style="color: red">Error: ${error.message}</p>`;
+      }
+    });
+  </script>
+</body>
+</html> 
