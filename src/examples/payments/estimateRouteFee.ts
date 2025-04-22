@@ -47,6 +47,7 @@ async function estimateRouteFeeExample() {
         const estimate = await lndClient.estimateRouteFee({
           dest: scenario.destinationPubkey,
           amt_sat: scenario.amount.toString()
+          // timeout parameter is optional - defaults to 60 seconds if not specified
         });
         
         // Display fee information

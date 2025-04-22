@@ -247,8 +247,8 @@ const lndClient = new LndClient(config);
 
 - **listPayments(options)**: List outgoing payments with filtering and pagination
 - **decodePayReq(payReq)**: Decode a payment request
-- **estimateRouteFee(options)**: Estimate the fee for a payment
-- **sendPaymentV2(options)**: Send a payment using the Lightning Network
+- **estimateRouteFee(options)**: Estimate the fee for a payment (includes default 60-second timeout)
+- **sendPaymentV2(options)**: Send a payment using the Lightning Network (includes default 60-second timeout)
 
 #### Monitoring Methods
 

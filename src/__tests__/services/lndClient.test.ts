@@ -490,7 +490,8 @@ describe('LndClient', () => {
         '/v2/router/route/estimatefee',
         {
           dest: destBase64,
-          amt_sat: mockRequest.amt_sat
+          amt_sat: mockRequest.amt_sat,
+          timeout: 60 // Default timeout value
         },
         {
           headers: {
@@ -581,7 +582,11 @@ describe('LndClient', () => {
 
       const result = await lndClient.sendPaymentV2(mockRequest);
 
-      expect(mockedAxios.post).toHaveBeenCalledWith('/v2/router/send', mockRequest);
+      // Check that the timeout_seconds was added with default value
+      expect(mockedAxios.post).toHaveBeenCalledWith('/v2/router/send', {
+        ...mockRequest,
+        timeout_seconds: 60
+      });
       expect(result).toEqual(mockResponse);
     });
 

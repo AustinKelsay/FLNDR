@@ -424,13 +424,10 @@ export class LndClient extends EventEmitter {
       // Create a request object matching exactly what the LND API expects
       const requestBody: any = {
         dest: destBase64,
-        amt_sat: request.amt_sat
+        amt_sat: request.amt_sat,
+        // Default timeout of 60 seconds if not specified
+        timeout: request.timeout !== undefined ? request.timeout : 60
       };
-      
-      // Add optional parameters only if they are defined
-      if (request.timeout !== undefined) {
-        requestBody.timeout = request.timeout;
-      }
       
       const response = await this.client.post<RouteFeesResponse>(
         '/v2/router/route/estimatefee',
@@ -472,7 +469,13 @@ export class LndClient extends EventEmitter {
    */
   public async sendPaymentV2(request: SendPaymentRequest): Promise<SendPaymentResponse> {
     try {
-      const response = await this.client.post<SendPaymentResponse>('/v2/router/send', request);
+      // Create a new request object with default timeout if not provided
+      const paymentRequest = {
+        ...request,
+        timeout_seconds: request.timeout_seconds || 60 // Default 60 second timeout
+      };
+      
+      const response = await this.client.post<SendPaymentResponse>('/v2/router/send', paymentRequest);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {

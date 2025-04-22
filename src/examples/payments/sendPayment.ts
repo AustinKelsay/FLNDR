@@ -61,7 +61,7 @@ async function sendPaymentExample() {
       const payment = await lndClient.sendPaymentV2({
         payment_request: paymentRequest,
         fee_limit_sat: (feeSats * 2).toString(), // Double the estimated fee as a buffer
-        timeout_seconds: '60'
+        // timeout_seconds is optional - defaults to 60 seconds if not specified
       });
       
       // Check payment status

@@ -104,6 +104,7 @@ async function streamingExample() {
       // Create a payment request
       const paymentRequest: SendPaymentRequest = {
         payment_request: invoice.payment_request,
+        // timeout_seconds is optional - defaults to 60 seconds if not specified
       };
       
       // Wait a bit to make sure all subscriptions are set up
