@@ -459,8 +459,43 @@ FLNDR provides real-time streaming capabilities using WebSockets for various LND
 
 - **subscribeInvoices()**: Subscribe to all invoice updates
 - **subscribeSingleInvoice(paymentHash)**: Subscribe to updates for a specific invoice
-- **trackPayments(paymentHash)**: Track updates for a specific payment
+- **trackPaymentByHash(paymentHash)**: Track updates for a specific payment by hash
 - **trackPaymentV2(noInflightUpdates)**: Track all outgoing payments
+
+### Payment Tracking Lifecycle
+
+When tracking payments using WebSockets, you'll receive multiple status updates as the payment progresses through the Lightning Network:
+
+1. **Initial update**: When the payment is first created with status `IN_FLIGHT` (no HTLCs yet)
+2. **Routing updates**: As the payment attempts to route through the network, you'll receive updates with HTLCs details
+3. **Final update**: When the payment either succeeds or fails
+
+Example of update progression:
+```
+// First update - Payment initiated
+{
+  "status": "IN_FLIGHT",
+  "htlcs": [],
+  "failure_reason": "FAILURE_REASON_NONE"
+}
+
+// Second update - Payment is being routed
+{
+  "status": "IN_FLIGHT",
+  "htlcs": [{ "status": "IN_FLIGHT", "route": {...} }],
+  "failure_reason": "FAILURE_REASON_NONE"
+}
+
+// Third update - Payment completed
+{
+  "status": "SUCCEEDED",
+  "payment_preimage": "1832946d8c54666baf76721c47421c096c74f88842b7f0ef8ee3d2c7591fe4e8",
+  "htlcs": [{ "status": "SUCCEEDED", "route": {...} }],
+  "failure_reason": "FAILURE_REASON_NONE"
+}
+```
+
+These multiple updates are normal and allow you to track the payment progress in real-time. The final status will be either `SUCCEEDED` (with a valid payment preimage) or one of the failure states with an appropriate failure reason.
 
 ### Cross-Platform Support
 

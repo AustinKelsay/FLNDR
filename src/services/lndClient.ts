@@ -804,21 +804,24 @@ export class LndClient extends EventEmitter {
    * @param retryDelay Base delay for retries in ms
    * @returns URL of the subscription
    */
-  public trackPayments(
+  public trackPaymentByHash(
     paymentHash: string,
     enableRetry: boolean = true,
     maxRetries: number = this.defaultMaxRetries,
     retryDelay: number = this.defaultRetryDelay
   ): string {
-    const url = `${this.config.baseUrl}/v2/router/track/${paymentHash}`;
+    // Ensure payment hash is properly formatted
+    const formattedHash = paymentHash.startsWith('0x') ? paymentHash.substring(2) : paymentHash;
+    
+    const url = `${this.config.baseUrl}/v2/router/track/${formattedHash}`;
     const headers = this.getHeaders();
     
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
     
     this.addEventListenerToWebSocket(ws, 'message', (event) => {
       try {
-        const paymentStatus = this.parseWebSocketMessage(event) as PaymentStatus;
-        this.emit('paymentStatus', paymentStatus);
+        const paymentUpdate = this.parseWebSocketMessage(event) as PaymentStatus;
+        this.emit('paymentUpdate', paymentUpdate);
       } catch (error) {
         this.emit('error', { url, error, message: 'Failed to parse payment status data' });
       }

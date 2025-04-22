@@ -89,7 +89,7 @@ async function streamingExample() {
     
     // For demo purposes, let's track this specific payment too
     console.log('Setting up tracking for this specific payment...');
-    const paymentTrackUrl = lndClient.trackPayments(invoice.r_hash, true); // Enable auto-reconnect
+    const paymentTrackUrl = lndClient.trackPaymentByHash(invoice.r_hash, true); // Enable auto-reconnect
     console.log(`Tracking payment at ${paymentTrackUrl}`);
     
     // Keep the process running to receive updates
