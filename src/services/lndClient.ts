@@ -117,6 +117,17 @@ export interface LndStreamingEvents {
   'close': { url: string, code: number, reason: string, reconnecting?: boolean };
   'invoice': Invoice;
   'singleInvoice': Invoice;
+  /**
+   * Payment status update event
+   * Emitted when:
+   * 1. Using trackPaymentByHash directly
+   * 2. Using sendPaymentV2 with streaming=true
+   * 
+   * The payment will typically go through several state changes:
+   * - IN_FLIGHT (initial state)
+   * - IN_FLIGHT (with HTLC information)
+   * - SUCCEEDED or FAILED (final state)
+   */
   'paymentUpdate': PaymentStatus;
 }
 
@@ -465,18 +476,32 @@ export class LndClient extends EventEmitter {
   /**
    * Send a Lightning payment
    * @param request Payment request parameters
-   * @returns Payment result
+   * @returns Payment result or connection URL for streaming
    */
-  public async sendPaymentV2(request: SendPaymentRequest): Promise<SendPaymentResponse> {
+  public async sendPaymentV2(request: SendPaymentRequest): Promise<SendPaymentResponse | string> {
+    // Create a new request object with default timeout if not provided
+    const paymentRequest = {
+      ...request,
+      timeout_seconds: request.timeout_seconds || "60" // Default 60 second timeout
+    };
+    
+    // Remove streaming parameter as it's not part of the LND API
+    const { streaming, ...lndRequest } = paymentRequest;
+    
     try {
-      // Create a new request object with default timeout if not provided
-      const paymentRequest = {
-        ...request,
-        timeout_seconds: request.timeout_seconds || 60 // Default 60 second timeout
-      };
-      
-      const response = await this.client.post<SendPaymentResponse>('/v2/router/send', paymentRequest);
-      return response.data;
+      // If streaming mode is requested, use WebSockets to track the payment
+      if (streaming) {
+        // First send the payment
+        const response = await this.client.post<SendPaymentResponse>('/v2/router/send', lndRequest);
+        const paymentHash = response.data.payment_hash;
+        
+        // Then start streaming updates
+        return this.trackPaymentByHash(paymentHash);
+      } else {
+        // Standard mode: just return the response
+        const response = await this.client.post<SendPaymentResponse>('/v2/router/send', lndRequest);
+        return response.data;
+      }
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
         // Extract detailed error information if available

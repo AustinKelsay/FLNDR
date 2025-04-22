@@ -282,6 +282,7 @@ export interface SendPaymentRequest {
   max_parts?: string;
   amp?: boolean;
   dest_features?: number[];
+  streaming?: boolean;
 }
 
 export interface SendPaymentResponse {

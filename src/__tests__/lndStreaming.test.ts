@@ -73,10 +73,10 @@ describe('LndClient Streaming', () => {
     });
   });
   
-  describe('trackPayments', () => {
+  describe('trackPaymentByHash', () => {
     it('should create a WebSocket connection to track a payment', () => {
       const mockPaymentHash = 'payment-hash';
-      lndClient.trackPayments(mockPaymentHash);
+      lndClient.trackPaymentByHash(mockPaymentHash);
       
       expect(WebSocket).toHaveBeenCalledWith(
         expect.stringContaining(`ws://localhost:8080/v2/router/track/`),

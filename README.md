@@ -248,7 +248,9 @@ const lndClient = new LndClient(config);
 - **listPayments(options)**: List outgoing payments with filtering and pagination
 - **decodePayReq(payReq)**: Decode a payment request
 - **estimateRouteFee(options)**: Estimate the fee for a payment (includes default 60-second timeout)
-- **sendPaymentV2(options)**: Send a payment using the Lightning Network (includes default 60-second timeout)
+- **sendPaymentV2(options)**: Send a payment using the Lightning Network
+  - Default behavior: Returns a single response with payment result (includes default 60-second timeout)
+  - Streaming mode: Set `streaming: true` to receive real-time HTLC updates via WebSockets
 
 #### Monitoring Methods
 
@@ -461,6 +463,46 @@ FLNDR provides real-time streaming capabilities using WebSockets for various LND
 - **subscribeSingleInvoice(paymentHash)**: Subscribe to updates for a specific invoice
 - **trackPaymentByHash(paymentHash)**: Track updates for a specific payment by hash
 - **trackPaymentV2(noInflightUpdates)**: Track all outgoing payments
+- **sendPaymentV2({streaming: true, ...})**: Send payment with real-time status tracking
+
+### Payment Tracking with sendPaymentV2
+
+The `sendPaymentV2` method offers two operational modes:
+
+#### 1. Default Mode (Single Response)
+```typescript
+// Regular request/response pattern
+const paymentResult = await lndClient.sendPaymentV2({
+  payment_request: 'lnbc...',
+  // streaming: false (default)
+});
+
+// paymentResult contains final payment state
+console.log('Payment status:', paymentResult.status);
+```
+
+#### 2. Streaming Mode (Real-time Updates)
+```typescript
+// Listen for payment updates
+lndClient.on('paymentUpdate', (update) => {
+  console.log('Payment status:', update.status);
+  
+  if (update.status === 'SUCCEEDED') {
+    console.log('Payment completed successfully!');
+  } else if (update.status === 'FAILED') {
+    console.log('Payment failed:', update.failure_reason);
+  }
+});
+
+// Start payment with streaming enabled
+const connectionUrl = await lndClient.sendPaymentV2({
+  payment_request: 'lnbc...',
+  streaming: true
+});
+
+// connectionUrl can be used later to close the connection
+// lndClient.closeConnection(connectionUrl);
+```
 
 ### Payment Tracking Lifecycle
 

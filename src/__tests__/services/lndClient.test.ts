@@ -577,7 +577,7 @@ describe('LndClient', () => {
       fee_limit_sat: '10',
     };
 
-    it('should send a payment', async () => {
+    it('should send a payment in standard mode', async () => {
       mockedAxios.post.mockResolvedValueOnce({ data: mockResponse });
 
       const result = await lndClient.sendPaymentV2(mockRequest);
@@ -585,7 +585,7 @@ describe('LndClient', () => {
       // Check that the timeout_seconds was added with default value
       expect(mockedAxios.post).toHaveBeenCalledWith('/v2/router/send', {
         ...mockRequest,
-        timeout_seconds: 60
+        timeout_seconds: "60"
       });
       expect(result).toEqual(mockResponse);
     });
@@ -596,6 +596,112 @@ describe('LndClient', () => {
       mockedIsAxiosError.mockReturnValueOnce(true);
 
       await expect(lndClient.sendPaymentV2(mockRequest)).rejects.toThrow('Failed to send payment');
+    });
+
+    it('should use streaming mode when streaming option is true', async () => {
+      // Setup mocks
+      mockedAxios.post.mockResolvedValueOnce({ 
+        data: { ...mockResponse, payment_hash: 'test-payment-hash' } 
+      });
+      
+      // Setup spy for trackPaymentByHash which gets called in streaming mode
+      const trackSpy = jest.spyOn(lndClient, 'trackPaymentByHash').mockReturnValue('mock-connection-url');
+      
+      // Call with streaming=true
+      const streamingRequest = {
+        ...mockRequest,
+        streaming: true
+      };
+      
+      const result = await lndClient.sendPaymentV2(streamingRequest);
+      
+      // Should call post first to send payment
+      expect(mockedAxios.post).toHaveBeenCalledWith('/v2/router/send', {
+        payment_request: 'lnbc1...',
+        fee_limit_sat: '10',
+        timeout_seconds: "60"
+      });
+      
+      // Verify 'streaming' parameter was not included in the API request
+      expect(mockedAxios.post).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ streaming: true })
+      );
+      
+      // Should call trackPaymentByHash with the payment hash
+      expect(trackSpy).toHaveBeenCalledWith('test-payment-hash');
+      
+      // Should return the connection URL
+      expect(result).toBe('mock-connection-url');
+    });
+  });
+
+  // Add tests for trackPaymentByHash method
+  describe('trackPaymentByHash', () => {
+    let mockWs: any;
+
+    beforeEach(() => {
+      // Create a mock WebSocket with necessary properties
+      mockWs = new EventEmitter();
+      mockWs.close = jest.fn();
+      Object.defineProperty(mockWs, 'readyState', {
+        get: jest.fn().mockReturnValue(WebSocket.OPEN),
+        configurable: true
+      });
+
+      // Get the WebSocket constructor mock and set its return value
+      const WsModule = jest.requireMock('ws');
+      WsModule.WebSocket.mockReturnValue(mockWs);
+    });
+
+    it('should create a WebSocket connection for tracking a specific payment', () => {
+      // Call the method with a hex payment hash
+      const paymentHash = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0';
+      const url = lndClient.trackPaymentByHash(paymentHash);
+
+      // Verify WebSocket creation with the correct path
+      expect(WebSocket).toHaveBeenCalledWith(
+        `wss://test-lnd-node:8080/v2/router/track/${paymentHash}`,
+        expect.anything()
+      );
+
+      // Verify the returned URL matches
+      expect(url).toBe(`https://test-lnd-node:8080/v2/router/track/${paymentHash}`);
+    });
+
+    it('should handle 0x prefixed payment hashes', () => {
+      // Call with 0x prefix
+      const paymentHash = '0xa1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0';
+      const url = lndClient.trackPaymentByHash(paymentHash);
+      
+      // Should strip the 0x prefix
+      expect(WebSocket).toHaveBeenCalledWith(
+        `wss://test-lnd-node:8080/v2/router/track/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0`,
+        expect.anything()
+      );
+    });
+
+    it('should emit payment update events when messages are received', () => {
+      // Setup a spy on the emit method
+      const emitSpy = jest.spyOn(lndClient, 'emit');
+
+      // Call the method to set up the WebSocket
+      const paymentHash = 'test-payment-hash';
+      lndClient.trackPaymentByHash(paymentHash);
+
+      // Create a mock payment update
+      const mockPayment = {
+        payment_hash: paymentHash,
+        status: 'SUCCEEDED',
+        value_sat: '1000',
+        fee_sat: '1',
+      };
+
+      // Simulate receiving a message
+      mockWs.emit('message', { data: JSON.stringify(mockPayment) });
+
+      // Verify that the payment update event was emitted
+      expect(emitSpy).toHaveBeenCalledWith('paymentUpdate', mockPayment);
     });
   });
 
