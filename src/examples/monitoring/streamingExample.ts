@@ -112,7 +112,13 @@ async function streamingExample() {
         try {
           console.log('Sending payment...');
           const paymentResult = await lndClient.sendPaymentV2(paymentRequest);
-          console.log(`Payment initiated: ${paymentResult.payment_hash}`);
+          
+          // Check the type of result since sendPaymentV2 can return string | SendPaymentResponse
+          if (typeof paymentResult === 'string') {
+            console.log(`Payment tracking started with connection URL: ${paymentResult}`);
+          } else {
+            console.log(`Payment initiated: ${paymentResult.payment_hash}`);
+          }
         } catch (error) {
           console.error('Failed to send payment:', error);
         }
