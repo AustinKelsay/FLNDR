@@ -12,11 +12,21 @@ FLNDR is a TypeScript-based wrapper for the LND REST API, designed to simplify L
 - Automatic network detection
 - **Browser compatible** - works in both Node.js and browser environments
 
+## Installation
+
+```bash
+npm install flndr
+```
+
 ## Configuration
 
-FLNDR can be configured using environment variables for secure access to your LND node. Create a `.env` file in your project root with the following variables:
+FLNDR can be configured using environment variables or direct configuration objects.
 
-### Option 1: Using File Paths
+### Node.js Configuration
+
+#### Option 1: Using Environment Variables
+
+Create a `.env` file in your project root:
 
 ```
 LND_REST_API_URL=https://your-lnd-node:8080
@@ -24,7 +34,7 @@ LND_MACAROON_PATH=/path/to/your/admin.macaroon
 LND_TLS_CERT_PATH=/path/to/your/tls.cert
 ```
 
-### Option 2: Using Raw Values
+Or use raw values:
 
 ```
 LND_REST_API_URL=https://your-lnd-node:8080
@@ -32,9 +42,7 @@ LND_MACAROON=0201036c6e6402f801030a1022a913... # Hex-encoded macaroon
 LND_TLS_CERT=-----BEGIN CERTIFICATE-----\nMIIC... # Raw certificate content
 ```
 
-You can mix and match these approaches as needed for your environment.
-
-Alternatively, you can directly provide the configuration when instantiating the client:
+#### Option 2: Direct Configuration
 
 ```typescript
 import { LndClient } from 'flndr';
@@ -46,13 +54,23 @@ const lndClient = new LndClient({
 });
 ```
 
-## Browser Compatibility
+#### Using Configuration Helpers
 
-FLNDR is designed to work in both Node.js and browser environments. When using in browsers, there are a few important considerations:
+```typescript
+import { getLndConfig, getLndConfigWithFallback } from 'flndr';
 
-### Configuration in Browsers
+// Strict config (throws error if required variables are missing)
+const strictConfig = getLndConfig();
+const lndClient = new LndClient(strictConfig);
 
-Since browsers don't have access to environment variables or the file system, you'll need to configure the client directly:
+// With fallbacks for development (warns if variables are missing)
+const devConfig = getLndConfigWithFallback();
+const lndClient = new LndClient(devConfig);
+```
+
+### Browser Configuration
+
+Since browsers don't have access to environment variables or the file system:
 
 ```typescript
 import { LndClient, getLndBrowserConfig } from 'flndr';
@@ -72,9 +90,7 @@ const config = getLndBrowserConfig({
 const lndClient = new LndClient(config);
 ```
 
-### Global Configuration
-
-You can also inject the configuration globally for browser environments:
+You can also inject configuration globally:
 
 ```html
 <script>
@@ -96,16 +112,6 @@ const config = getLndBrowserConfig();
 const lndClient = new LndClient(config);
 ```
 
-### WebSocket Connections in Browsers
-
-For WebSocket streaming connections, browsers cannot set custom headers in the WebSocket constructor. This means you'll need a proxy server that:
-
-1. Accepts the WebSocket connection from the browser
-2. Adds the macaroon authentication header
-3. Forwards the connection to your LND node
-
-For local development, you can use tools like [cors-anywhere](https://github.com/Rob--W/cors-anywhere/) or set up a dedicated proxy with Express.js.
-
 ## Quick Start
 
 ```typescript
@@ -114,7 +120,7 @@ import { LndClient } from 'flndr';
 // Create a client instance
 const lnd = new LndClient({
   baseUrl: 'https://your-lnd-node:8080',
-  macaroon: 'your-admin-macaroon-in-hex', // hex encoded macaroon
+  macaroon: 'your-admin-macaroon-in-hex',
 });
 
 // Get node info
@@ -136,98 +142,9 @@ async function getNodeInfo() {
 getNodeInfo();
 ```
 
-## Network Support
+## API Reference
 
-FLNDR supports multiple Bitcoin networks and automatically detects which network your node is running on:
-
-- `mainnet`: Bitcoin mainnet (production)
-- `regtest`: Bitcoin regtest (local testing)
-- `signet`: Bitcoin signet (including MutinyNet)
-
-### Auto-detection
-
-The library will automatically determine which network your LND node is running on by checking the chain information returned from the node:
-
-```typescript
-import { LndClient, getLndConfigWithFallback } from 'flndr';
-
-const config = getLndConfigWithFallback();
-const lndClient = new LndClient(config);
-
-async function checkNetwork() {
-  // Auto-detects the network when any of these methods are called
-  console.log(`Network: ${await lndClient.getNetwork()}`);
-  console.log(`Is mainnet: ${await lndClient.isMainnet()}`);
-  console.log(`Is signet: ${await lndClient.isSignet()}`);
-}
-
-checkNetwork();
-```
-
-## Examples
-
-The SDK includes a variety of examples that demonstrate how to interact with an LND node through the REST API.
-
-### Setting up for examples
-
-1. Copy the `.env.example` file to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Update the `.env` file with your LND node's connection details:
-   ```
-   LND_REST_API_URL=https://your-lnd-node:8080
-   LND_MACAROON_PATH=/path/to/your/admin.macaroon
-   LND_TLS_CERT_PATH=/path/to/your/tls.cert
-   ```
-
-### Running examples
-
-You can run all examples with:
-```bash
-npm run examples
-```
-
-Individual examples can be found in the `src/examples/` directory and can be run directly with ts-node:
-```bash
-npx ts-node src/examples/info/getInfo.ts
-```
-
-Network detection example:
-```bash
-npx ts-node src/examples/info/networkDetectionExample.ts
-```
-
-## Tests
-
-The SDK includes comprehensive tests for all implemented methods. Run the tests with:
-
-```bash
-npm test
-```
-
-## API Documentation
-
-### LndClient
-
-The main class for interacting with the LND REST API.
-
-```typescript
-import { LndClient } from 'flndr';
-
-// Initialize with direct configuration
-const lndClient = new LndClient({
-  baseUrl: 'https://your-lnd-node:8080',
-  macaroon: 'your-hex-encoded-macaroon',
-  tlsCert: 'your-tls-cert-content', // Optional
-});
-
-// Or initialize using environment variables
-import { getLndConfigWithFallback } from 'flndr';
-const config = getLndConfigWithFallback();
-const lndClient = new LndClient(config);
-```
+### LndClient Core Methods
 
 #### Info Methods
 
@@ -252,137 +169,139 @@ const lndClient = new LndClient(config);
   - Default behavior: Returns a single response with payment result (includes default 60-second timeout)
   - Streaming mode: Set `streaming: true` to receive real-time HTLC updates via WebSockets
 
-#### Monitoring Methods
+### WebSocket Streaming Methods
 
-- **subscribeInvoices(enableRetry?, maxRetries?, retryDelay?)**: Subscribe to invoice updates
-- **subscribeSingleInvoice(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Subscribe to a single invoice update
-- **trackPayments(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Track payments with specific payment hash
+FLNDR provides real-time streaming capabilities using WebSockets for various LND events:
+
+- **subscribeInvoices(enableRetry?, maxRetries?, retryDelay?)**: Subscribe to all invoice updates
+- **subscribeSingleInvoice(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Subscribe to updates for a specific invoice
+- **trackPayments(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Track updates for a specific payment by hash
 - **trackPaymentV2(noInflightUpdates?, enableRetry?, maxRetries?, retryDelay?)**: Track all outgoing payments
 
-### Configuration Utility
+#### Payment Tracking with sendPaymentV2
 
-You can use the configuration utility to manage LND connection details:
+##### Default Mode (Single Response)
+```typescript
+// Regular request/response pattern
+const paymentResult = await lndClient.sendPaymentV2({
+  payment_request: 'lnbc...',
+  // streaming: false (default)
+});
+
+// paymentResult contains final payment state
+console.log('Payment status:', paymentResult.status);
+```
+
+##### Streaming Mode (Real-time Updates)
+```typescript
+// Listen for payment updates
+lndClient.on('paymentUpdate', (update) => {
+  console.log('Payment status:', update.status);
+  
+  if (update.status === 'SUCCEEDED') {
+    console.log('Payment completed successfully!');
+  } else if (update.status === 'FAILED') {
+    console.log('Payment failed:', update.failure_reason);
+  }
+});
+
+// Start payment with streaming enabled
+const connectionUrl = await lndClient.sendPaymentV2({
+  payment_request: 'lnbc...',
+  streaming: true
+});
+
+// connectionUrl can be used later to close the connection
+// lndClient.closeConnection(connectionUrl);
+```
+
+#### Connection Management
+
+Methods to manage WebSocket connections:
 
 ```typescript
-import { getLndConfig, getLndConfigWithFallback } from 'flndr';
+// Close a specific connection
+lndClient.closeConnection(url);
 
-// Get configuration from environment variables (throws error if required variables are missing)
-const strictConfig = getLndConfig();
+// Close all active connections
+lndClient.closeAllConnections();
 
-// Get configuration with fallbacks for development (warns if variables are missing)
-const devConfig = getLndConfigWithFallback();
+// Check if a connection is active
+const isActive = lndClient.isConnectionActive(url);
+
+// Get the status of a connection
+const status = lndClient.getConnectionStatus(url); // Returns 'CONNECTING', 'OPEN', 'CLOSING', 'CLOSED', or null
 ```
 
-## Implemented Features
+#### Reconnection Handling
 
-### Info
-- ✅ getInfo
-- ✅ channelBalance
-- ✅ getNetwork
-- ✅ isMainnet
-- ✅ isSignet
+All streaming methods support automatic reconnection:
 
-### Receiving
-- ✅ addInvoice
-- ✅ lookupInvoiceV2
-- ✅ listInvoices
+```typescript
+// Enable automatic reconnection with custom parameters
+const url = lndClient.subscribeInvoices(
+  true,           // enableRetry
+  10,             // maxRetries
+  2000            // retryDelay in ms
+);
 
-### Payments
-- ✅ listPayments
-- ✅ decodePayReq
-- ✅ estimateRouteFee
-- ✅ sendPaymentV2
-
-### Monitoring
-- ✅ subscribeInvoices
-- ✅ subscribeSingleInvoice
-- ✅ trackPayments
-- ✅ trackPaymentV2
-
-## License
-
-MIT
-
-### Using in Browsers
-
-You can import FLNDR in browsers using different methods:
-
-#### Using npm and bundlers (Webpack, Rollup, etc.)
-
-```bash
-npm install flndr
+// The client will automatically attempt to reconnect if the connection is lost
+// with exponential backoff (delay doubles after each retry)
 ```
 
-Then import the library:
+## Network Support
+
+FLNDR supports multiple Bitcoin networks:
+
+- `mainnet`: Bitcoin mainnet (production)
+- `regtest`: Bitcoin regtest (local testing)
+- `signet`: Bitcoin signet (including MutinyNet)
+
+The library automatically detects which network your LND node is running on:
+
+```typescript
+import { LndClient } from 'flndr';
+
+const lndClient = new LndClient(config);
+
+async function checkNetwork() {
+  console.log(`Network: ${await lndClient.getNetwork()}`);
+  console.log(`Is mainnet: ${await lndClient.isMainnet()}`);
+  console.log(`Is signet: ${await lndClient.isSignet()}`);
+}
+
+checkNetwork();
+```
+
+## Browser Usage Guide
+
+### Importing in Browsers
 
 ```javascript
 // ESM import (recommended)
-import { LndClient, getLndBrowserConfig } from 'flndr';
+import { LndClient } from 'flndr';
 
 // Or explicitly use the browser version
-import { LndClient, getLndBrowserConfig } from 'flndr/browser';
+import { LndClient } from 'flndr/browser';
 
-// If your bundler supports CommonJS
-const { LndClient } = require('flndr');
-```
+// Using ES modules directly from CDN
+import { LndClient } from 'https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js';
 
-#### Using ES modules directly in browser
-
-```html
-<script type="module">
-  // Import directly from a CDN
-  import { LndClient } from 'https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js';
-  
-  const lndClient = new LndClient({
-    baseUrl: 'https://your-lnd-proxy:8080',
-    macaroon: 'your-hex-encoded-macaroon'
-  });
-  
-  // Use the client
-  lndClient.getInfo()
-    .then(info => console.log(info))
-    .catch(err => console.error(err));
-</script>
-```
-
-#### Using script tags
-
-```html
-<!-- For modern browsers that support ES modules -->
-<script type="module">
-  import { LndClient } from './node_modules/flndr/dist/browser.js';
-  // Use LndClient
-</script>
-
-<!-- For legacy browsers using UMD bundle from CDN -->
+// Script tag for legacy browsers (UMD bundle)
 <script src="https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js"></script>
 <script>
-  // FLNDR is available as a global variable
   const { LndClient } = FLNDR;
   
-  const lndClient = new LndClient({
-    baseUrl: 'https://your-lnd-proxy:8080',
-    macaroon: 'your-hex-encoded-macaroon'
-  });
-  
-  // Use the client as normal
-  lndClient.getInfo()
-    .then(info => console.log(info))
-    .catch(err => console.error(err));
+  // Use the client...
 </script>
 ```
 
-### Browser CORS Considerations
+### CORS Considerations
 
-When using FLNDR in a browser, you'll likely encounter Cross-Origin Resource Sharing (CORS) restrictions when trying to connect directly to an LND REST API. To address this, consider:
-
-1. Setting up a proxy server with proper CORS headers
-2. Using a serverless function as a proxy
-3. If it's a controlled environment, configuring your LND node to allow CORS requests
-
-Example Express.js proxy server:
+When using FLNDR in a browser, you'll likely need a proxy server to handle Cross-Origin Resource Sharing (CORS) restrictions:
 
 ```javascript
+// Example Express.js proxy server
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
@@ -425,187 +344,58 @@ const lndClient = new LndClient({
 });
 ```
 
-## Network Support
+### WebSocket in Browsers
 
-FLNDR supports multiple Bitcoin networks and automatically detects which network your node is running on:
+For WebSocket streaming connections, browsers cannot set custom headers in the WebSocket constructor. You'll need a proxy server that:
 
-- `mainnet`: Bitcoin mainnet (production)
-- `regtest`: Bitcoin regtest (local testing)
-- `signet`: Bitcoin signet (including MutinyNet)
+1. Accepts the WebSocket connection from the browser
+2. Adds the macaroon authentication header
+3. Forwards the connection to your LND node
 
-### Auto-detection
+This can be done using the same proxy approach described in the CORS section above.
 
-The library will automatically determine which network your LND node is running on by checking the chain information returned from the node:
+## Examples
 
-```typescript
-import { LndClient, getLndConfigWithFallback } from 'flndr';
+The SDK includes examples that demonstrate how to interact with an LND node.
 
-const config = getLndConfigWithFallback();
-const lndClient = new LndClient(config);
+### Setting up for examples
 
-async function checkNetwork() {
-  // Auto-detects the network when any of these methods are called
-  console.log(`Network: ${await lndClient.getNetwork()}`);
-  console.log(`Is mainnet: ${await lndClient.isMainnet()}`);
-  console.log(`Is signet: ${await lndClient.isSignet()}`);
-}
+1. Copy the `.env.example` file to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
 
-checkNetwork();
+2. Update the `.env` file with your LND node's connection details.
+
+### Running examples
+
+```bash
+# Run all examples
+npm run examples
+
+# Run individual examples
+npx ts-node src/examples/info/getInfo.ts
+npx ts-node src/examples/info/networkDetectionExample.ts
 ```
 
-## WebSocket Streaming Support
+## Development
 
-FLNDR provides real-time streaming capabilities using WebSockets for various LND events. The library is designed to work seamlessly in both Node.js and browser environments, with automatic environment detection.
+### Tests
 
-### Available Streaming Methods
+Run the tests with:
 
-- **subscribeInvoices()**: Subscribe to all invoice updates
-- **subscribeSingleInvoice(paymentHash)**: Subscribe to updates for a specific invoice
-- **trackPaymentByHash(paymentHash)**: Track updates for a specific payment by hash
-- **trackPaymentV2(noInflightUpdates)**: Track all outgoing payments
-- **sendPaymentV2({streaming: true, ...})**: Send payment with real-time status tracking
-
-### Payment Tracking with sendPaymentV2
-
-The `sendPaymentV2` method offers two operational modes:
-
-#### 1. Default Mode (Single Response)
-```typescript
-// Regular request/response pattern
-const paymentResult = await lndClient.sendPaymentV2({
-  payment_request: 'lnbc...',
-  // streaming: false (default)
-});
-
-// paymentResult contains final payment state
-console.log('Payment status:', paymentResult.status);
+```bash
+npm test
 ```
 
-#### 2. Streaming Mode (Real-time Updates)
-```typescript
-// Listen for payment updates
-lndClient.on('paymentUpdate', (update) => {
-  console.log('Payment status:', update.status);
-  
-  if (update.status === 'SUCCEEDED') {
-    console.log('Payment completed successfully!');
-  } else if (update.status === 'FAILED') {
-    console.log('Payment failed:', update.failure_reason);
-  }
-});
+## Implemented Features
 
-// Start payment with streaming enabled
-const connectionUrl = await lndClient.sendPaymentV2({
-  payment_request: 'lnbc...',
-  streaming: true
-});
+- ✅ getInfo, channelBalance, getNetwork, isMainnet, isSignet
+- ✅ addInvoice, lookupInvoiceV2, listInvoices
+- ✅ listPayments, decodePayReq, estimateRouteFee, sendPaymentV2
+- ✅ subscribeInvoices, subscribeSingleInvoice, trackPayments, trackPaymentV2
 
-// connectionUrl can be used later to close the connection
-// lndClient.closeConnection(connectionUrl);
-```
+## License
 
-### Payment Tracking Lifecycle
-
-When tracking payments using WebSockets, you'll receive multiple status updates as the payment progresses through the Lightning Network:
-
-1. **Initial update**: When the payment is first created with status `IN_FLIGHT` (no HTLCs yet)
-2. **Routing updates**: As the payment attempts to route through the network, you'll receive updates with HTLCs details
-3. **Final update**: When the payment either succeeds or fails
-
-Example of update progression:
-```
-// First update - Payment initiated
-{
-  "status": "IN_FLIGHT",
-  "htlcs": [],
-  "failure_reason": "FAILURE_REASON_NONE"
-}
-
-// Second update - Payment is being routed
-{
-  "status": "IN_FLIGHT",
-  "htlcs": [{ "status": "IN_FLIGHT", "route": {...} }],
-  "failure_reason": "FAILURE_REASON_NONE"
-}
-
-// Third update - Payment completed
-{
-  "status": "SUCCEEDED",
-  "payment_preimage": "1832946d8c54666baf76721c47421c096c74f88842b7f0ef8ee3d2c7591fe4e8",
-  "htlcs": [{ "status": "SUCCEEDED", "route": {...} }],
-  "failure_reason": "FAILURE_REASON_NONE"
-}
-```
-
-These multiple updates are normal and allow you to track the payment progress in real-time. The final status will be either `SUCCEEDED` (with a valid payment preimage) or one of the failure states with an appropriate failure reason.
-
-### Cross-Platform Support
-
-The library automatically detects whether it's running in a browser or Node.js environment and uses the appropriate WebSocket implementation:
-
-- In **browsers**, it uses the native `WebSocket` API
-- In **Node.js**, it uses the `ws` package
-
-### Example Usage
-
-```typescript
-import { LndClient } from 'flndr';
-
-const lndClient = new LndClient({
-  baseUrl: 'https://your-lnd-node:8080',
-  macaroon: 'your-hex-encoded-macaroon'
-});
-
-// Subscribe to all invoice updates
-const subscriptionUrl = lndClient.subscribeInvoices();
-
-// Listen for invoice events
-lndClient.on('invoice', (invoice) => {
-  console.log('New invoice update:', invoice);
-});
-
-// To later close the connection
-lndClient.closeConnection(subscriptionUrl);
-
-// Or close all active connections
-lndClient.closeAllConnections();
-```
-
-### Browser Considerations
-
-As mentioned in the Browser Compatibility section, browsers cannot set custom headers in WebSocket constructors. For streaming connections, you'll need a proxy server that can:
-
-1. Accept the WebSocket connection from the browser
-2. Add the macaroon authentication header
-3. Forward the connection to your LND node
-
-For an example proxy setup, see the Browser CORS Considerations section.
-
-### Reconnection Handling
-
-All streaming methods support automatic reconnection in case of disconnection:
-
-```typescript
-// Enable automatic reconnection with custom parameters
-const url = lndClient.subscribeInvoices(
-  true,           // enableRetry
-  10,             // maxRetries
-  2000            // retryDelay in ms
-);
-
-// The client will automatically attempt to reconnect if the connection is lost
-// with exponential backoff (delay doubles after each retry)
-```
-
-### Connection Management
-
-The library provides methods to manage WebSocket connections:
-
-```typescript
-// Check if a connection is active
-const isActive = lndClient.isConnectionActive(url);
-
-// Get the status of a connection
-const status = lndClient.getConnectionStatus(url); // Returns 'CONNECTING', 'OPEN', 'CLOSING', 'CLOSED', or null
-```
+MIT
 
