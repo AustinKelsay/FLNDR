@@ -174,6 +174,7 @@ getNodeInfo();
 - **listTransactionHistory(options)**: Get a unified list of both payments and invoices
   - Combines data from both `listPayments` and `listInvoices`
   - Properly fetches ALL historical transactions with advanced pagination using `lastIndexOffset`
+  - Includes safety measures to prevent infinite loops during pagination
   - Supports pagination in API response with `offset` and `limit` parameters
   - Filter by transaction types (`sent`, `received`)
   - Filter by statuses (`succeeded`, `failed`, `in_flight`, `pending`, `settled`, `accepted`, `canceled`, `expired`)
@@ -301,39 +302,4 @@ FLNDR supports multiple Bitcoin networks:
 
 The library automatically detects which network your LND node is running on:
 
-```typescript
-import { LndClient } from 'flndr';
-
-const lndClient = new LndClient(config);
-
-async function checkNetwork() {
-  console.log(`Network: ${await lndClient.getNetwork()}`);
-  console.log(`Is mainnet: ${await lndClient.isMainnet()}`);
-  console.log(`Is signet: ${await lndClient.isSignet()}`);
-}
-
-checkNetwork();
-```
-
-## Browser Usage Guide
-
-### Importing in Browsers
-
-```javascript
-// ESM import (recommended)
-import { LndClient } from 'flndr';
-
-// Or explicitly use the browser version
-import { LndClient } from 'flndr/browser';
-
-// Using ES modules directly from CDN
-import { LndClient } from 'https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js';
-
-// Script tag for legacy browsers (UMD bundle)
-<script src="https://cdn.jsdelivr.net/npm/flndr@1.0.0/dist/browser.js"></script>
-<script>
-  const { LndClient } = FLNDR;
-  
-  // Use the client...
-</script>
 ```

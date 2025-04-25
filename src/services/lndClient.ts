@@ -952,8 +952,13 @@ export class LndClient extends EventEmitter {
         // Fetching all payments with pagination
         let hasMorePayments = true;
         let lastIndexOffset = '';
+        let seenIndexOffsets = new Set<string>();
+        let iterationCount = 0;
+        const MAX_ITERATIONS = 100; // Safety limit to prevent infinite loops
         
-        while (hasMorePayments) {
+        while (hasMorePayments && iterationCount < MAX_ITERATIONS) {
+          iterationCount++;
+          
           const payments = await this.listPayments({
             ...commonParams,
             include_incomplete: true, // Include all payments regardless of status
@@ -990,8 +995,20 @@ export class LndClient extends EventEmitter {
           if (payments.payments.length < 100 || !payments.last_index_offset) {
             hasMorePayments = false;
           } else {
-            lastIndexOffset = payments.last_index_offset;
+            // Check if we've seen this index offset before (prevents infinite loops)
+            if (seenIndexOffsets.has(payments.last_index_offset)) {
+              console.warn(`Detected duplicate index offset ${payments.last_index_offset} when fetching payments. Breaking loop to prevent infinite recursion.`);
+              hasMorePayments = false;
+            } else {
+              seenIndexOffsets.add(payments.last_index_offset);
+              lastIndexOffset = payments.last_index_offset;
+            }
           }
+        }
+        
+        // Log warning if we hit the iteration limit
+        if (iterationCount >= MAX_ITERATIONS) {
+          console.warn(`Reached maximum number of iterations (${MAX_ITERATIONS}) when fetching payments. Some payments may be missing.`);
         }
       } catch (error) {
         console.warn('Error fetching payments:', error);
@@ -1005,8 +1022,13 @@ export class LndClient extends EventEmitter {
         // Fetching all invoices with pagination
         let hasMoreInvoices = true;
         let lastIndexOffset = '';
+        let seenIndexOffsets = new Set<string>();
+        let iterationCount = 0;
+        const MAX_ITERATIONS = 100; // Safety limit to prevent infinite loops
         
-        while (hasMoreInvoices) {
+        while (hasMoreInvoices && iterationCount < MAX_ITERATIONS) {
+          iterationCount++;
+          
           const invoices = await this.listInvoices({
             ...commonParams,
             pending_only: false, // Make sure we get all invoices regardless of status
@@ -1041,8 +1063,20 @@ export class LndClient extends EventEmitter {
           if (invoices.invoices.length < 100 || !invoices.last_index_offset) {
             hasMoreInvoices = false;
           } else {
-            lastIndexOffset = invoices.last_index_offset;
+            // Check if we've seen this index offset before (prevents infinite loops)
+            if (seenIndexOffsets.has(invoices.last_index_offset)) {
+              console.warn(`Detected duplicate index offset ${invoices.last_index_offset} when fetching invoices. Breaking loop to prevent infinite recursion.`);
+              hasMoreInvoices = false;
+            } else {
+              seenIndexOffsets.add(invoices.last_index_offset);
+              lastIndexOffset = invoices.last_index_offset;
+            }
           }
+        }
+        
+        // Log warning if we hit the iteration limit
+        if (iterationCount >= MAX_ITERATIONS) {
+          console.warn(`Reached maximum number of iterations (${MAX_ITERATIONS}) when fetching invoices. Some invoices may be missing.`);
         }
       } catch (error) {
         console.warn('Error fetching invoices:', error);
