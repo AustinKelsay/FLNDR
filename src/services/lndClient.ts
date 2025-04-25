@@ -938,29 +938,36 @@ export class LndClient extends EventEmitter {
       const commonParams = {
         creation_date_start: request.creation_date_start,
         creation_date_end: request.creation_date_end,
+        // Adding reversed: true to get newest first (consistent with our final sort)
+        reversed: true
       };
-      
-      // We'll fetch more items than requested to handle filtering
-      // We might need to discard some items based on filters
-      const fetchLimit = limit * 2;
       
       // Track API failures
       let paymentsError: Error | null = null;
       let invoicesError: Error | null = null;
       
-      // Fetch payments
+      // Fetch ALL payments - we'll handle pagination after combining
       let paymentTransactions: Transaction[] = [];
       try {
-        const payments = await this.listPayments({
-          ...commonParams,
-          include_incomplete: true,
-          max_payments: fetchLimit,
-          // TODO: Implement proper offset for payments
-        });
+        // Fetching all payments with pagination
+        let hasMorePayments = true;
+        let lastIndexOffset = '';
         
-        // Transform payments to unified transaction format if payments are available
-        if (payments && payments.payments) {
-          paymentTransactions = payments.payments.map(payment => ({
+        while (hasMorePayments) {
+          const payments = await this.listPayments({
+            ...commonParams,
+            include_incomplete: true, // Include all payments regardless of status
+            max_payments: 100, // Maximum allowed per request
+            index_offset: lastIndexOffset || undefined,
+          });
+          
+          if (!payments || !payments.payments || payments.payments.length === 0) {
+            hasMorePayments = false;
+            break;
+          }
+          
+          // Transform payments to unified transaction format
+          const newTransactions = payments.payments.map(payment => ({
             id: payment.payment_hash,
             type: 'sent' as TransactionType,
             amount: parseInt(payment.value_sat || '0', 10),
@@ -976,6 +983,15 @@ export class LndClient extends EventEmitter {
             raw_payment: payment,
             raw_invoice: null
           }));
+          
+          paymentTransactions = [...paymentTransactions, ...newTransactions];
+          
+          // Check if we have more payments to fetch
+          if (payments.payments.length < 100 || !payments.last_index_offset) {
+            hasMorePayments = false;
+          } else {
+            lastIndexOffset = payments.last_index_offset;
+          }
         }
       } catch (error) {
         console.warn('Error fetching payments:', error);
@@ -983,18 +999,28 @@ export class LndClient extends EventEmitter {
         // Continue with empty payments instead of failing completely
       }
       
-      // Fetch invoices
+      // Fetch ALL invoices
       let invoiceTransactions: Transaction[] = [];
       try {
-        const invoices = await this.listInvoices({
-          ...commonParams,
-          num_max_invoices: fetchLimit,
-          // TODO: Implement proper offset for invoices
-        });
+        // Fetching all invoices with pagination
+        let hasMoreInvoices = true;
+        let lastIndexOffset = '';
         
-        // Transform invoices to unified transaction format if invoices are available
-        if (invoices && invoices.invoices) {
-          invoiceTransactions = invoices.invoices.map(invoice => ({
+        while (hasMoreInvoices) {
+          const invoices = await this.listInvoices({
+            ...commonParams,
+            pending_only: false, // Make sure we get all invoices regardless of status
+            num_max_invoices: 100, // Maximum allowed per request
+            index_offset: lastIndexOffset || undefined,
+          });
+          
+          if (!invoices || !invoices.invoices || invoices.invoices.length === 0) {
+            hasMoreInvoices = false;
+            break;
+          }
+          
+          // Transform invoices to unified transaction format
+          const newTransactions = invoices.invoices.map(invoice => ({
             id: invoice.r_hash,
             type: 'received' as TransactionType,
             amount: parseInt(invoice.value || '0', 10),
@@ -1008,6 +1034,15 @@ export class LndClient extends EventEmitter {
             raw_payment: null,
             raw_invoice: invoice
           }));
+          
+          invoiceTransactions = [...invoiceTransactions, ...newTransactions];
+          
+          // Check if we have more invoices to fetch
+          if (invoices.invoices.length < 100 || !invoices.last_index_offset) {
+            hasMoreInvoices = false;
+          } else {
+            lastIndexOffset = invoices.last_index_offset;
+          }
         }
       } catch (error) {
         console.warn('Error fetching invoices:', error);
@@ -1038,7 +1073,7 @@ export class LndClient extends EventEmitter {
       // Calculate total count before pagination
       const totalCount = allTransactions.length;
       
-      // Apply pagination
+      // Apply pagination after all filtering
       const paginatedTransactions = allTransactions.slice(offset, offset + limit);
       
       // Return paginated result
@@ -1070,6 +1105,10 @@ export class LndClient extends EventEmitter {
         return 'failed';
       case 'IN_FLIGHT':
         return 'in_flight';
+      case 'INITIATED':
+        return 'pending';
+      case 'UNKNOWN':
+        return 'pending';
       default:
         return 'pending';
     }
@@ -1087,8 +1126,11 @@ export class LndClient extends EventEmitter {
       return 'accepted';
     } else if (invoice.state === 'CANCELED') {
       return 'canceled';
-    } else if (parseInt(invoice.expiry, 10) + parseInt(invoice.creation_date, 10) < Math.floor(Date.now() / 1000)) {
-      return 'expired';
+    } else if (invoice.state === 'OPEN') {
+      if (parseInt(invoice.expiry, 10) + parseInt(invoice.creation_date, 10) < Math.floor(Date.now() / 1000)) {
+        return 'expired';
+      }
+      return 'pending';
     } else {
       return 'pending';
     }
