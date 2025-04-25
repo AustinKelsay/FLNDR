@@ -18,7 +18,12 @@ import {
   RouteFeesResponse,
   SendPaymentRequest,
   SendPaymentResponse,
-  PaymentStatus
+  PaymentStatus,
+  Transaction,
+  TransactionType,
+  TransactionStatus,
+  ListTransactionHistoryRequest,
+  ListTransactionHistoryResponse
 } from '../types/lnd';
 import { toUrlSafeBase64Format, hexToUrlSafeBase64 } from '../utils/base64Utils';
 
@@ -915,6 +920,192 @@ export class LndClient extends EventEmitter {
       return JSON.parse(data.toString());
     } else {
       throw new Error('Unsupported message data format');
+    }
+  }
+
+  /**
+   * List transaction history combining both payments and invoices
+   * @param request Transaction listing parameters
+   * @returns Unified transaction history with pagination
+   */
+  public async listTransactionHistory(request: ListTransactionHistoryRequest = {}): Promise<ListTransactionHistoryResponse> {
+    try {
+      // Default pagination values
+      const limit = request.limit || 25;
+      const offset = request.offset || 0;
+      
+      // Prepare filter parameters for payments and invoices
+      const commonParams = {
+        creation_date_start: request.creation_date_start,
+        creation_date_end: request.creation_date_end,
+      };
+      
+      // We'll fetch more items than requested to handle filtering
+      // We might need to discard some items based on filters
+      const fetchLimit = limit * 2;
+      
+      // Track API failures
+      let paymentsError: Error | null = null;
+      let invoicesError: Error | null = null;
+      
+      // Fetch payments
+      let paymentTransactions: Transaction[] = [];
+      try {
+        const payments = await this.listPayments({
+          ...commonParams,
+          include_incomplete: true,
+          max_payments: fetchLimit,
+          // TODO: Implement proper offset for payments
+        });
+        
+        // Transform payments to unified transaction format if payments are available
+        if (payments && payments.payments) {
+          paymentTransactions = payments.payments.map(payment => ({
+            id: payment.payment_hash,
+            type: 'sent' as TransactionType,
+            amount: parseInt(payment.value_sat || '0', 10),
+            fee: parseInt(payment.fee_sat || '0', 10),
+            timestamp: parseInt(payment.creation_date || '0', 10),
+            status: this.mapPaymentStatus(payment.status),
+            description: payment.payment_request ? 
+              (payment.payment_request.startsWith('ln') ? this.extractDescriptionFromPayReq(payment.payment_request) : '') : 
+              '',
+            preimage: payment.payment_preimage || '',
+            destination: payment.path && payment.path.length > 0 ? payment.path[payment.path.length - 1] : '',
+            payment_hash: payment.payment_hash,
+            raw_payment: payment,
+            raw_invoice: null
+          }));
+        }
+      } catch (error) {
+        console.warn('Error fetching payments:', error);
+        paymentsError = error instanceof Error ? error : new Error(String(error));
+        // Continue with empty payments instead of failing completely
+      }
+      
+      // Fetch invoices
+      let invoiceTransactions: Transaction[] = [];
+      try {
+        const invoices = await this.listInvoices({
+          ...commonParams,
+          num_max_invoices: fetchLimit,
+          // TODO: Implement proper offset for invoices
+        });
+        
+        // Transform invoices to unified transaction format if invoices are available
+        if (invoices && invoices.invoices) {
+          invoiceTransactions = invoices.invoices.map(invoice => ({
+            id: invoice.r_hash,
+            type: 'received' as TransactionType,
+            amount: parseInt(invoice.value || '0', 10),
+            fee: 0, // Invoices don't have fees for the receiver
+            timestamp: parseInt(invoice.creation_date || '0', 10),
+            status: this.mapInvoiceStatus(invoice),
+            description: invoice.memo || '',
+            preimage: invoice.r_preimage || '',
+            destination: '',
+            payment_hash: invoice.r_hash,
+            raw_payment: null,
+            raw_invoice: invoice
+          }));
+        }
+      } catch (error) {
+        console.warn('Error fetching invoices:', error);
+        invoicesError = error instanceof Error ? error : new Error(String(error));
+        // Continue with empty invoices instead of failing completely
+      }
+      
+      // If both API calls failed, throw an error
+      if (paymentsError && invoicesError) {
+        throw new Error(`Failed to list transaction history: Could not fetch payments or invoices`);
+      }
+      
+      // Combine all transactions
+      let allTransactions: Transaction[] = [...paymentTransactions, ...invoiceTransactions];
+      
+      // Apply filters
+      if (request.types && request.types.length > 0) {
+        allTransactions = allTransactions.filter(tx => request.types!.includes(tx.type));
+      }
+      
+      if (request.statuses && request.statuses.length > 0) {
+        allTransactions = allTransactions.filter(tx => request.statuses!.includes(tx.status));
+      }
+      
+      // Sort by timestamp descending (newest first)
+      allTransactions.sort((a, b) => b.timestamp - a.timestamp);
+      
+      // Calculate total count before pagination
+      const totalCount = allTransactions.length;
+      
+      // Apply pagination
+      const paginatedTransactions = allTransactions.slice(offset, offset + limit);
+      
+      // Return paginated result
+      return {
+        transactions: paginatedTransactions,
+        offset,
+        limit,
+        total_count: totalCount,
+        has_more: offset + limit < totalCount
+      };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        throw new Error(`Failed to list transaction history: ${error.message}`);
+      }
+      throw new Error(`Failed to list transaction history: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Map LND payment status to unified transaction status
+   * @param status LND payment status
+   * @returns Unified transaction status
+   */
+  private mapPaymentStatus(status: string): TransactionStatus {
+    switch (status) {
+      case 'SUCCEEDED':
+        return 'succeeded';
+      case 'FAILED':
+        return 'failed';
+      case 'IN_FLIGHT':
+        return 'in_flight';
+      default:
+        return 'pending';
+    }
+  }
+
+  /**
+   * Map LND invoice status to unified transaction status
+   * @param invoice LND invoice
+   * @returns Unified transaction status
+   */
+  private mapInvoiceStatus(invoice: Invoice): TransactionStatus {
+    if (invoice.settled) {
+      return 'settled';
+    } else if (invoice.state === 'ACCEPTED') {
+      return 'accepted';
+    } else if (invoice.state === 'CANCELED') {
+      return 'canceled';
+    } else if (parseInt(invoice.expiry, 10) + parseInt(invoice.creation_date, 10) < Math.floor(Date.now() / 1000)) {
+      return 'expired';
+    } else {
+      return 'pending';
+    }
+  }
+
+  /**
+   * Extract description from payment request
+   * @param paymentRequest BOLT11 payment request
+   * @returns Description or empty string
+   */
+  private extractDescriptionFromPayReq(paymentRequest: string): string {
+    try {
+      // Simplified approach - for actual implementation, 
+      // we might need to decode the payment request
+      return '';
+    } catch (error) {
+      return '';
     }
   }
 }

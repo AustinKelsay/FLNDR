@@ -396,4 +396,59 @@ export interface PaymentStatus {
   creation_time_ns: string;
   inflight: boolean;
   failure_reason: 'FAILURE_REASON_NONE' | 'FAILURE_REASON_TIMEOUT' | 'FAILURE_REASON_NO_ROUTE' | 'FAILURE_REASON_ERROR' | 'FAILURE_REASON_INCORRECT_PAYMENT_DETAILS' | 'FAILURE_REASON_INSUFFICIENT_BALANCE';
+}
+
+/**
+ * Transaction types for the unified transaction history
+ */
+export type TransactionType = 'sent' | 'received';
+
+/**
+ * Transaction statuses for the unified transaction history
+ */
+export type TransactionStatus = 
+  // Payment statuses
+  'succeeded' | 'failed' | 'in_flight' | 'pending' |
+  // Invoice statuses
+  'settled' | 'accepted' | 'canceled' | 'expired';
+
+/**
+ * Unified transaction object that represents both payments and invoices
+ */
+export interface Transaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  fee: number;
+  timestamp: number;
+  status: TransactionStatus;
+  description: string;
+  preimage: string;
+  destination: string;
+  payment_hash: string;
+  raw_payment: Payment | null;
+  raw_invoice: Invoice | null;
+}
+
+/**
+ * Request parameters for listing transaction history
+ */
+export interface ListTransactionHistoryRequest {
+  offset?: number;
+  limit?: number;
+  types?: TransactionType[];
+  statuses?: TransactionStatus[];
+  creation_date_start?: string;
+  creation_date_end?: string;
+}
+
+/**
+ * Response object for transaction history listing
+ */
+export interface ListTransactionHistoryResponse {
+  transactions: Transaction[];
+  offset: number;
+  limit: number;
+  total_count: number;
+  has_more: boolean;
 } 

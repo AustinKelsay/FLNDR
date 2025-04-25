@@ -19,6 +19,8 @@ import listPaymentsExample from './payments/listPayments';
 import sendPaymentExample from './payments/sendPayment';
 import decodePayReqExample from './payments/decodePayReq';
 import estimateRouteFeeExample from './payments/estimateRouteFee';
+// Transaction history example
+import transactionHistoryExample from './transactions/transactionHistory';
 // We import but don't automatically run the streaming example
 // since it creates long-running connections
 import { streamingExample } from './monitoring';
@@ -83,8 +85,13 @@ async function runExamples() {
     console.log('\n-'.repeat(10));
     await sendPaymentExample();
     
+    // Transaction History examples
+    console.log('\n\n4️⃣ Running Transaction History Example:');
+    console.log('-'.repeat(10));
+    await transactionHistoryExample();
+    
     // Monitoring examples
-    console.log('\n\n4️⃣ About Monitoring Examples:');
+    console.log('\n\n5️⃣ About Monitoring Examples:');
     console.log('-'.repeat(10));
     console.log('The streaming examples create long-running WebSocket connections');
     console.log('and are designed to be run separately. To run them, use:');
