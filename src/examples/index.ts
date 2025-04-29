@@ -12,19 +12,16 @@ import 'dotenv/config';
 import getInfoExample from './info/getInfo';
 import channelBalanceExample from './info/channelBalance';
 import networkDetectionExample from './info/networkDetectionExample';
-import addInvoiceExample from './receiving/addInvoice';
-import lookupInvoiceExample from './receiving/lookupInvoice';
-import listInvoicesExample from './receiving/listInvoices';
+import addInvoiceExample from './invoice/addInvoice';
+import lookupInvoiceExample from './invoice/lookupInvoice';
+import listInvoicesExample from './invoice/listInvoices';
 import listPaymentsExample from './payments/listPayments';
 import sendPaymentExample from './payments/sendPayment';
 import decodePayReqExample from './payments/decodePayReq';
 import estimateRouteFeeExample from './payments/estimateRouteFee';
 // Transaction history example
-import transactionHistoryExample from './transactions/transactionHistory';
-// We import but don't automatically run the streaming example
-// since it creates long-running connections
-import { streamingExample } from './monitoring';
-// Import the mocked streaming example
+import transactionHistoryExample from './custom/listTransactionHistory';
+// Import the mocked streaming example (we cannot run it here because it creates long-running connections)
 import mockedStreamingExample from './monitoring/mockedStreamingExample';
 
 /**

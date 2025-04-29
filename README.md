@@ -156,7 +156,7 @@ These methods provide direct wrappers for the standard LND gRPC/REST API functio
 - **isMainnet()**: Check if the client is connected to mainnet
 - **isSignet()**: Check if the client is connected to signet
 
-#### Receiving Methods
+#### Invoice Methods
 
 - **addInvoice(options)**: Create a new Lightning invoice
 - **lookupInvoiceV2(paymentHash)**: Look up an invoice by its payment hash

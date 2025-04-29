@@ -27,8 +27,18 @@
     "build:browser": "tsc -p tsconfig.browser.json",
     "prepublishOnly": "npm run build && npm run build:browser",
     "test": "jest",
+    "test:info": "jest --testPathPattern=src/__tests__/info",
+    "test:invoice": "jest --testPathPattern=src/__tests__/invoice",
+    "test:payments": "jest --testPathPattern=src/__tests__/payments",
+    "test:monitoring": "jest --testPathPattern=src/__tests__/monitoring",
+    "test:custom": "jest --testPathPattern=src/__tests__/custom",
+    "test:browser": "jest --testPathPattern=src/__tests__/browser",
     "lint": "eslint src/**/*.ts",
-    "examples": "ts-node src/examples/index.ts"
+    "examples": "ts-node src/examples/index.ts",
+    "examples:monitoring:streaming": "ts-node -e \"require('./src/examples/monitoring/streamingExample').default()\"",
+    "examples:monitoring:mocked": "ts-node -e \"require('./src/examples/monitoring/mockedStreamingExample').default()\"",
+    "examples:monitoring:all": "ts-node src/examples/monitoring/run.ts all",
+    "examples:monitoring:enhanced": "ts-node src/examples/monitoring/enhancedStreamingExample.ts"
   },
   "keywords": [
     "lightning",

@@ -1,4 +1,4 @@
-import { LndClient } from '../services/lndClient';
+import { LndClient } from '../../services/lndClient';
 import WebSocket from 'ws';
 
 // Create a proper mock for WebSocket that works with Jest spying

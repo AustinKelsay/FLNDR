@@ -5,10 +5,10 @@
  */
 
 // Import all browser exports
-import * as browserExports from '../browser';
-import { LndClient } from '../services/lndClient';
-import { createBrowserConfig, getLndBrowserConfig } from '../utils/browserConfig';
-import { toUrlSafeBase64Format, hexToUrlSafeBase64 } from '../utils/base64Utils';
+import * as browserExports from '../../browser';
+import { LndClient } from '../../services/lndClient';
+import { createBrowserConfig, getLndBrowserConfig } from '../../utils/browserConfig';
+import { toUrlSafeBase64Format, hexToUrlSafeBase64 } from '../../utils/base64Utils';
 
 describe('Browser exports', () => {
   it('should export LndClient', () => {
