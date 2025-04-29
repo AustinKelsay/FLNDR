@@ -3,6 +3,10 @@
  * 
  * This example demonstrates how to use the listTransactionHistory method
  * to display a unified transaction history with filtering and pagination.
+ * 
+ * This is the first custom method in the FLNDR library that enhances
+ * standard LND functionality by combining payments and invoices into
+ * a unified transaction history.
  */
 
 import { LndClient } from '../../services/lndClient';
@@ -66,6 +70,12 @@ ${tx.destination ? `Destination: ${tx.destination}` : ''}
 
 /**
  * Example 1: Fetch all transaction history
+ * 
+ * This demonstrates the basic usage of listTransactionHistory without
+ * any filters. By default, it will:
+ * - Return both sent and received transactions
+ * - Use the default pagination of 25 items
+ * - Sort by newest first
  */
 async function fetchAllTransactions(): Promise<void> {
   try {
@@ -81,12 +91,19 @@ async function fetchAllTransactions(): Promise<void> {
     }
     
   } catch (error) {
-    console.error('Error fetching all transactions:', error);
+    console.error('Error fetching all transactions:', error instanceof Error ? error.message : String(error));
   }
 }
 
 /**
  * Example 2: Filter by transaction type
+ * 
+ * The listTransactionHistory method supports filtering by transaction type:
+ * - 'sent' - Only show outgoing payments
+ * - 'received' - Only show incoming payments (invoices)
+ * 
+ * This optimizes the API calls - when filtering by type, only the
+ * relevant API endpoint will be called.
  */
 async function filterByType(): Promise<void> {
   try {
@@ -103,13 +120,34 @@ async function filterByType(): Promise<void> {
       printTransaction(tx);
     }
     
+    // Now let's try received transactions
+    console.log('\n🔍 FILTERING BY TYPE - RECEIVED TRANSACTIONS ONLY');
+    console.log('================================================');
+    
+    const receivedOnly = await lndClient.listTransactionHistory({
+      types: ['received']
+    });
+    
+    console.log(`Retrieved ${receivedOnly.transactions.length} received transactions\n`);
+    
+    for (const tx of receivedOnly.transactions) {
+      printTransaction(tx);
+    }
+    
   } catch (error) {
-    console.error('Error filtering by type:', error);
+    console.error('Error filtering by type:', error instanceof Error ? error.message : String(error));
   }
 }
 
 /**
  * Example 3: Filter by status
+ * 
+ * The listTransactionHistory method supports filtering by status:
+ * - 'succeeded', 'failed', 'in_flight', 'pending' (for sent payments)
+ * - 'settled', 'accepted', 'canceled', 'expired' (for received payments)
+ * 
+ * These are unified statuses that translate LND's internal status codes
+ * to a consistent set of values.
  */
 async function filterByStatus(): Promise<void> {
   try {
@@ -127,12 +165,18 @@ async function filterByStatus(): Promise<void> {
     }
     
   } catch (error) {
-    console.error('Error filtering by status:', error);
+    console.error('Error filtering by status:', error instanceof Error ? error.message : String(error));
   }
 }
 
 /**
  * Example 4: Filter by date range
+ * 
+ * The listTransactionHistory method supports date range filtering:
+ * - creation_date_start: Unix timestamp for the start date
+ * - creation_date_end: Unix timestamp for the end date
+ * 
+ * These parameters are passed directly to the LND API calls.
  */
 async function filterByDateRange(): Promise<void> {
   try {
@@ -153,12 +197,20 @@ async function filterByDateRange(): Promise<void> {
     }
     
   } catch (error) {
-    console.error('Error filtering by date range:', error);
+    console.error('Error filtering by date range:', error instanceof Error ? error.message : String(error));
   }
 }
 
 /**
  * Example 5: Paginated results
+ * 
+ * The listTransactionHistory method supports pagination:
+ * - limit: Maximum number of items to return (default: 25)
+ * - offset: Number of items to skip (default: 0)
+ * 
+ * The method returns pagination metadata:
+ * - total_count: Total number of matching transactions
+ * - has_more: Boolean indicating if there are more pages
  */
 async function paginatedResults(): Promise<void> {
   try {
@@ -197,12 +249,17 @@ async function paginatedResults(): Promise<void> {
     }
     
   } catch (error) {
-    console.error('Error with paginated results:', error);
+    console.error('Error with paginated results:', error instanceof Error ? error.message : String(error));
   }
 }
 
 /**
  * Example 6: Combined filters
+ * 
+ * The listTransactionHistory method supports combining multiple filters:
+ * - Filter by type and status simultaneously
+ * - Apply date range filtering
+ * - Use pagination together with filtering
  */
 async function combinedFilters(): Promise<void> {
   try {
@@ -226,7 +283,7 @@ async function combinedFilters(): Promise<void> {
     }
     
   } catch (error) {
-    console.error('Error with combined filters:', error);
+    console.error('Error with combined filters:', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -237,6 +294,9 @@ async function runExamples(): Promise<void> {
   try {
     console.log('🚀 TRANSACTION HISTORY EXAMPLES');
     console.log('==============================');
+    console.log('Demonstrating the listTransactionHistory method - FLNDR\'s first custom method');
+    console.log('that enhances standard LND functionality by combining payments and invoices');
+    console.log('into a unified, filterable transaction history.');
     
     await fetchAllTransactions();
     await filterByType();
@@ -247,7 +307,7 @@ async function runExamples(): Promise<void> {
     
     console.log('\n✅ ALL EXAMPLES COMPLETED');
   } catch (error) {
-    console.error('Error running examples:', error);
+    console.error('Error running examples:', error instanceof Error ? error.message : String(error));
   } finally {
     process.exit(0);
   }

@@ -146,6 +146,8 @@ getNodeInfo();
 
 ### LndClient Core Methods
 
+These methods provide direct wrappers for the standard LND gRPC/REST API functionality.
+
 #### Info Methods
 
 - **getInfo()**: Get basic information about the LND node
@@ -169,13 +171,16 @@ getNodeInfo();
   - Default behavior: Returns a single response with payment result (includes default 60-second timeout)
   - Streaming mode: Set `streaming: true` to receive real-time HTLC updates via WebSockets
 
+### Custom Methods
+
+The following methods extend beyond simple LND API wrappers to provide enhanced functionality.
+
 #### Transaction History
 
 - **listTransactionHistory(options)**: Get a unified list of both payments and invoices
-  - Combines data from both `listPayments` and `listInvoices`
-  - Properly fetches ALL historical transactions with advanced pagination using `lastIndexOffset`
-  - Includes safety measures to prevent infinite loops during pagination
-  - Supports pagination in API response with `offset` and `limit` parameters
+  - **First custom method** in the FLNDR library that enhances standard LND functionality
+  - Intelligently combines data from both `listPayments` and `listInvoices` into a unified transaction list
+  - Supports pagination with `offset` and `limit` parameters
   - Filter by transaction types (`sent`, `received`)
   - Filter by statuses (`succeeded`, `failed`, `in_flight`, `pending`, `settled`, `accepted`, `canceled`, `expired`)
   - Date range filtering with `creation_date_start` and `creation_date_end`

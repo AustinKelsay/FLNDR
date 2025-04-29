@@ -924,9 +924,8 @@ export class LndClient extends EventEmitter {
   }
 
   /**
-   * List transaction history combining both payments and invoices
-   * @param request Transaction listing parameters
-   * @returns Unified transaction history with pagination
+   * Combined transaction history implementation
+   * Fetches both payments and invoices and returns a unified list
    */
   public async listTransactionHistory(request: ListTransactionHistoryRequest = {}): Promise<ListTransactionHistoryResponse> {
     try {
@@ -934,169 +933,67 @@ export class LndClient extends EventEmitter {
       const limit = request.limit || 25;
       const offset = request.offset || 0;
       
-      // Prepare filter parameters for payments and invoices
+      // Common params for both payments and invoices
       const commonParams = {
         creation_date_start: request.creation_date_start,
         creation_date_end: request.creation_date_end,
-        // Adding reversed: true to get newest first (consistent with our final sort)
-        reversed: true
+        reversed: true // Get newest first
       };
       
-      // Track API failures
-      let paymentsError: Error | null = null;
-      let invoicesError: Error | null = null;
-      
-      // Fetch ALL payments - we'll handle pagination after combining
+      // Fetch payments (sent transactions)
       let paymentTransactions: Transaction[] = [];
-      try {
-        // Fetching all payments with pagination
-        let hasMorePayments = true;
-        let lastIndexOffset = '';
-        let seenIndexOffsets = new Set<string>();
-        let iterationCount = 0;
-        const MAX_ITERATIONS = 100; // Safety limit to prevent infinite loops
+      if (!request.types || request.types.includes('sent')) {
+        const payments = await this.listPayments({
+          ...commonParams,
+          include_incomplete: true,
+          max_payments: 100
+        });
         
-        while (hasMorePayments && iterationCount < MAX_ITERATIONS) {
-          iterationCount++;
-          
-          const payments = await this.listPayments({
-            ...commonParams,
-            include_incomplete: true, // Include all payments regardless of status
-            max_payments: 100, // Maximum allowed per request
-            index_offset: lastIndexOffset || undefined,
-          });
-          
-          if (!payments || !payments.payments || payments.payments.length === 0) {
-            hasMorePayments = false;
-            break;
-          }
-          
-          // Transform payments to unified transaction format
-          const newTransactions = payments.payments.map(payment => ({
-            id: payment.payment_hash,
-            type: 'sent' as TransactionType,
-            amount: parseInt(payment.value_sat || '0', 10),
-            fee: parseInt(payment.fee_sat || '0', 10),
-            timestamp: parseInt(payment.creation_date || '0', 10),
-            status: this.mapPaymentStatus(payment.status),
-            description: payment.payment_request ? 
-              (payment.payment_request.startsWith('ln') ? this.extractDescriptionFromPayReq(payment.payment_request) : '') : 
-              '',
-            preimage: payment.payment_preimage || '',
-            destination: payment.path && payment.path.length > 0 ? payment.path[payment.path.length - 1] : '',
-            payment_hash: payment.payment_hash,
-            raw_payment: payment,
-            raw_invoice: null
-          }));
-          
-          paymentTransactions = [...paymentTransactions, ...newTransactions];
-          
-          // Check if we have more payments to fetch
-          if (payments.payments.length < 100 || !payments.last_index_offset) {
-            hasMorePayments = false;
-          } else {
-            // Check if we've seen this index offset before (prevents infinite loops)
-            if (seenIndexOffsets.has(payments.last_index_offset)) {
-              console.warn(`Detected duplicate index offset ${payments.last_index_offset} when fetching payments. Breaking loop to prevent infinite recursion.`);
-              hasMorePayments = false;
-            } else {
-              seenIndexOffsets.add(payments.last_index_offset);
-              lastIndexOffset = payments.last_index_offset;
-            }
-          }
-        }
-        
-        // Log warning if we hit the iteration limit
-        if (iterationCount >= MAX_ITERATIONS) {
-          console.warn(`Reached maximum number of iterations (${MAX_ITERATIONS}) when fetching payments. Some payments may be missing.`);
-        }
-      } catch (error) {
-        console.warn('Error fetching payments:', error);
-        paymentsError = error instanceof Error ? error : new Error(String(error));
-        // Continue with empty payments instead of failing completely
+        paymentTransactions = payments.payments.map(payment => ({
+          id: payment.payment_hash,
+          type: 'sent',
+          amount: parseInt(payment.value_sat || '0'),
+          fee: parseInt(payment.fee_sat || '0'),
+          timestamp: parseInt(payment.creation_date || '0'),
+          status: this.mapPaymentStatus(payment.status),
+          description: payment.payment_request || '',
+          preimage: payment.payment_preimage || '',
+          destination: payment.path && payment.path.length > 0 ? payment.path[payment.path.length - 1] : '',
+          payment_hash: payment.payment_hash,
+          raw_payment: payment,
+          raw_invoice: null
+        }));
       }
       
-      // Fetch ALL invoices
+      // Fetch invoices (received transactions)
       let invoiceTransactions: Transaction[] = [];
-      try {
-        // Fetching all invoices with pagination
-        let hasMoreInvoices = true;
-        let lastIndexOffset = '';
-        let seenIndexOffsets = new Set<string>();
-        let iterationCount = 0;
-        const MAX_ITERATIONS = 100; // Safety limit to prevent infinite loops
+      if (!request.types || request.types.includes('received')) {
+        const invoices = await this.listInvoices({
+          ...commonParams,
+          pending_only: false,
+          num_max_invoices: 100
+        });
         
-        while (hasMoreInvoices && iterationCount < MAX_ITERATIONS) {
-          iterationCount++;
-          
-          const invoices = await this.listInvoices({
-            ...commonParams,
-            pending_only: false, // Make sure we get all invoices regardless of status
-            num_max_invoices: 100, // Maximum allowed per request
-            index_offset: lastIndexOffset || undefined,
-          });
-          
-          if (!invoices || !invoices.invoices || invoices.invoices.length === 0) {
-            hasMoreInvoices = false;
-            break;
-          }
-          
-          // Transform invoices to unified transaction format
-          const newTransactions = invoices.invoices.map(invoice => ({
-            id: invoice.r_hash,
-            type: 'received' as TransactionType,
-            amount: parseInt(invoice.value || '0', 10),
-            fee: 0, // Invoices don't have fees for the receiver
-            timestamp: parseInt(invoice.creation_date || '0', 10),
-            status: this.mapInvoiceStatus(invoice),
-            description: invoice.memo || '',
-            preimage: invoice.r_preimage || '',
-            destination: '',
-            payment_hash: invoice.r_hash,
-            raw_payment: null,
-            raw_invoice: invoice
-          }));
-          
-          invoiceTransactions = [...invoiceTransactions, ...newTransactions];
-          
-          // Check if we have more invoices to fetch
-          if (invoices.invoices.length < 100 || !invoices.last_index_offset) {
-            hasMoreInvoices = false;
-          } else {
-            // Check if we've seen this index offset before (prevents infinite loops)
-            if (seenIndexOffsets.has(invoices.last_index_offset)) {
-              console.warn(`Detected duplicate index offset ${invoices.last_index_offset} when fetching invoices. Breaking loop to prevent infinite recursion.`);
-              hasMoreInvoices = false;
-            } else {
-              seenIndexOffsets.add(invoices.last_index_offset);
-              lastIndexOffset = invoices.last_index_offset;
-            }
-          }
-        }
-        
-        // Log warning if we hit the iteration limit
-        if (iterationCount >= MAX_ITERATIONS) {
-          console.warn(`Reached maximum number of iterations (${MAX_ITERATIONS}) when fetching invoices. Some invoices may be missing.`);
-        }
-      } catch (error) {
-        console.warn('Error fetching invoices:', error);
-        invoicesError = error instanceof Error ? error : new Error(String(error));
-        // Continue with empty invoices instead of failing completely
-      }
-      
-      // If both API calls failed, throw an error
-      if (paymentsError && invoicesError) {
-        throw new Error(`Failed to list transaction history: Could not fetch payments or invoices`);
+        invoiceTransactions = invoices.invoices.map(invoice => ({
+          id: invoice.r_hash,
+          type: 'received',
+          amount: parseInt(invoice.value || '0'),
+          fee: 0, // Received transactions don't have fees for the receiver
+          timestamp: parseInt(invoice.creation_date || '0'),
+          status: this.mapInvoiceStatus(invoice),
+          description: invoice.memo || '',
+          preimage: invoice.r_preimage || '',
+          destination: '',
+          payment_hash: invoice.r_hash,
+          raw_payment: null,
+          raw_invoice: invoice
+        }));
       }
       
       // Combine all transactions
       let allTransactions: Transaction[] = [...paymentTransactions, ...invoiceTransactions];
       
-      // Apply filters
-      if (request.types && request.types.length > 0) {
-        allTransactions = allTransactions.filter(tx => request.types!.includes(tx.type));
-      }
-      
+      // Apply status filter if requested
       if (request.statuses && request.statuses.length > 0) {
         allTransactions = allTransactions.filter(tx => request.statuses!.includes(tx.status));
       }
@@ -1107,10 +1004,9 @@ export class LndClient extends EventEmitter {
       // Calculate total count before pagination
       const totalCount = allTransactions.length;
       
-      // Apply pagination after all filtering
+      // Apply pagination
       const paginatedTransactions = allTransactions.slice(offset, offset + limit);
       
-      // Return paginated result
       return {
         transactions: paginatedTransactions,
         offset,
@@ -1119,10 +1015,8 @@ export class LndClient extends EventEmitter {
         has_more: offset + limit < totalCount
       };
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        throw new Error(`Failed to list transaction history: ${error.message}`);
-      }
-      throw new Error(`Failed to list transaction history: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('Error in transaction history:', error);
+      throw new Error('Failed to fetch transaction history from LND');
     }
   }
 
