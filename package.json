@@ -35,10 +35,10 @@
     "test:browser": "jest --testPathPattern=src/__tests__/browser",
     "lint": "eslint src/**/*.ts",
     "examples": "ts-node src/examples/index.ts",
-    "examples:monitoring:streaming": "ts-node -e \"require('./src/examples/monitoring/streamingExample').default()\"",
-    "examples:monitoring:mocked": "ts-node -e \"require('./src/examples/monitoring/mockedStreamingExample').default()\"",
-    "examples:monitoring:all": "ts-node src/examples/monitoring/run.ts all",
-    "examples:monitoring:enhanced": "ts-node src/examples/monitoring/enhancedStreamingExample.ts"
+    "monitor": "ts-node src/examples/monitoring/run-monitor.ts",
+    "monitor:mocked": "npm run monitor mocked",
+    "monitor:streaming": "npm run monitor streaming",
+    "monitor:all": "npm run monitor all"
   },
   "keywords": [
     "lightning",

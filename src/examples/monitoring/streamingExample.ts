@@ -6,165 +6,420 @@ import { getLndConfigWithFallback } from '../../utils/config';
 // Load environment variables from .env file
 config();
 
-// Simple example of using LndClient to monitor invoices and payments
+/**
+ * Comprehensive LND streaming example with robust error handling and debugging
+ * to help troubleshoot WebSocket connection issues with LND
+ * 
+ * This example demonstrates:
+ * 1. Robust WebSocket connection establishment
+ * 2. Advanced message parsing for LND's complex response formats
+ * 3. Detailed error reporting and connection diagnostics
+ * 4. Comprehensive event handling and data display
+ * 
+ * Note: Not all LND providers support all WebSocket endpoints. Invoice
+ * subscriptions are most reliable, while payment tracking might not work
+ * with some providers like Voltage.
+ */
 async function streamingExample() {
+  let lndClient: LndClient | null = null;
+  
+  // Set up clean exit handling
+  const cleanup = () => {
+    console.log('\n🧹 Cleaning up connections and exiting...');
+    if (lndClient) {
+      lndClient.closeAllConnections();
+      console.log('✅ All connections closed');
+    }
+    console.log('👋 Exiting gracefully');
+    process.exit(0);
+  };
+  
+  // Handle ctrl+c and other termination signals
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+  
   try {
     console.log('🔍 FLNDR Streaming Example');
     console.log('==================================================');
     
     // Get configuration from environment variables with fallback
-    console.log('Setting up LND client connection...');
+    console.log('📋 Checking LND client configuration...');
     const lndConfig = getLndConfigWithFallback();
     
-    // Initialize the unified client
-    const lndClient = new LndClient(lndConfig);
+    // Print basic configuration (sanitized) for debugging
+    console.log('\n🔑 Connection Configuration:');
+    console.log(`• Host: ${lndConfig.baseUrl}`);
+    console.log(`• Macaroon provided: ${lndConfig.macaroon ? '✅ Yes' : '❌ No'}`);
+    if (lndConfig.macaroon) {
+      // Only show the first and last 6 chars of the macaroon for security
+      const macaroonPreview = lndConfig.macaroon.length > 15 
+        ? `${lndConfig.macaroon.slice(0, 6)}...${lndConfig.macaroon.slice(-6)}`
+        : '(Invalid format)';
+      console.log(`• Macaroon preview: ${macaroonPreview}`);
+    }
+    console.log(`• TLS Certificate: ${lndConfig.tlsCert ? '✅ Provided' : '❌ Not provided'}`);
     
-    // Display connection info
-    console.log(`Using LND node at: ${lndConfig.baseUrl}`);
-    console.log('-------------------------------------------');
-    
-    // Set up event listeners for streaming events
-    lndClient.on('open', ({ url }) => {
-      console.log(`🔌 Connection opened to ${url}`);
-    });
-    
-    lndClient.on('error', ({ url, error, message }) => {
-      console.error(`❌ Error from ${url}: ${message || error.message}`);
-    });
-    
-    lndClient.on('close', ({ url, code, reason }) => {
-      console.log(`🔌 Connection closed to ${url} with code ${code} and reason: ${reason}`);
-    });
-    
-    // Listen for invoice updates
-    lndClient.on('invoice', (invoice: Invoice) => {
-      console.log('📝 Invoice update received:');
-      console.log(`- Hash: ${invoice.r_hash}`);
-      console.log(`- Amount: ${invoice.value || 0} sats`);
-      console.log(`- State: ${invoice.state}`);
-      console.log(`- Memo: ${invoice.memo}`);
-      console.log('-------------------');
+    // Check if we're using fallback configuration
+    const usingFallback = lndConfig.baseUrl === 'https://your-lnd-node:8080';
+    if (usingFallback) {
+      console.log('\n⚠️ WARNING: Using fallback configuration values');
+      console.log('This example will not work correctly with the fallback configuration.');
+      console.log('Please configure your LND connection in .env file');
       
-      if (invoice.state === 'SETTLED') {
-        console.log('💰 Invoice settled!');
+      // Ask if user wants to continue anyway
+      console.log('\nDo you want to continue with fallback values anyway for testing? (y/N)');
+      process.stdin.resume();
+      process.stdin.setEncoding('utf8');
+      
+      // Wait for user input
+      const answer = await new Promise(resolve => {
+        process.stdin.once('data', (data) => {
+          const input = data.toString().trim().toLowerCase();
+          resolve(input === 'y' || input === 'yes');
+        });
+      });
+      
+      if (!answer) {
+        console.log('Exiting as requested by user');
+        process.exit(0);
+      }
+      
+      console.log('Continuing with fallback values (expect connection errors)');
+    }
+    
+    // Initialize the unified client
+    console.log('\n🔄 Initializing LND client...');
+    lndClient = new LndClient(lndConfig);
+    console.log('✅ LND client initialized');
+    
+    // Verify connectivity by calling getInfo
+    console.log('\n🔄 Testing LND connection with getInfo()...');
+    try {
+      const info = await lndClient.getInfo();
+      console.log('✅ Successfully connected to LND node!');
+      console.log(`• Node alias: ${info.alias}`);
+      console.log(`• Node pubkey: ${info.identity_pubkey}`);
+      console.log(`• Block height: ${info.block_height}`);
+      console.log(`• Active channels: ${info.num_active_channels}`);
+      console.log(`• LND version: ${info.version}`);
+    } catch (error) {
+      console.error('❌ Failed to connect to LND node:', error);
+      console.log('\n⚠️ Cannot proceed with connection error. Please check your LND configuration.');
+      cleanup();
+      return;
+    }
+    
+    // Set up event listeners for WebSocket events with more verbose logging
+    console.log('\n📡 Setting up WebSocket event listeners...');
+    
+    // Connection opened handler
+    lndClient.on('open', ({ url, reconnecting, attempt, reconnected }) => {
+      if (reconnecting) {
+        console.log(`🔄 Reconnecting to ${url}${attempt ? ` (attempt ${attempt})` : ''}`);
+      } else if (reconnected) {
+        console.log(`✅ Successfully reconnected to ${url}`);
+      } else {
+        console.log(`🔌 Connection opened to ${url}`);
       }
     });
     
-    // Listen for payment updates
+    // Connection error handler with detailed logging
+    lndClient.on('error', ({ url, error, message, reconnecting }) => {
+      if (reconnecting) {
+        console.error(`⚠️ Error during reconnection to ${url}: ${message || error.message}`);
+      } else {
+        console.error(`❌ WebSocket error from ${url}:`);
+        console.error(`• Message: ${message || error.message}`);
+        if (error.stack) {
+          console.error(`• Stack: ${error.stack}`);
+        }
+      }
+    });
+    
+    // Connection close handler with code interpretation
+    lndClient.on('close', ({ url, code, reason, reconnecting }) => {
+      const codeExplanation = getWebSocketCloseExplanation(code);
+      if (reconnecting) {
+        console.log(`🔄 Connection temporarily closed to ${url} (will retry)`);
+      } else {
+        console.log(`🔌 Connection closed to ${url}:`);
+        console.log(`• Code: ${code} (${codeExplanation})`);
+        console.log(`• Reason: ${reason || 'No reason provided'}`);
+      }
+    });
+    
+    // Invoice update handler
+    lndClient.on('invoice', (invoice: Invoice) => {
+      console.log('📝 Invoice update received:');
+      console.log(`• Hash: ${invoice.r_hash || 'unknown'}`);
+      console.log(`• Amount: ${invoice.value || 0} sats`);
+      console.log(`• State: ${invoice.state || 'unknown'}`);
+      console.log(`• Memo: ${invoice.memo || 'none'}`);
+      
+      // Print additional useful information if available
+      if (invoice.payment_request) {
+        // Only show a preview of the payment request as it can be very long
+        const requestPreview = invoice.payment_request.length > 30 
+          ? `${invoice.payment_request.substring(0, 15)}...${invoice.payment_request.substring(invoice.payment_request.length - 15)}`
+          : invoice.payment_request;
+        console.log(`• Payment Request: ${requestPreview}`);
+      }
+      
+      // Show timestamps if available
+      if (invoice.creation_date) {
+        const creationDate = new Date(parseInt(invoice.creation_date) * 1000);
+        console.log(`• Created: ${creationDate.toLocaleString()}`);
+      }
+      
+      if (invoice.settle_date) {
+        const settleDate = new Date(parseInt(invoice.settle_date) * 1000);
+        console.log(`• Settled: ${settleDate.toLocaleString()}`);
+      }
+      
+      console.log('-'.repeat(40));
+      
+      // Show a clear status message
+      if (invoice.state === 'SETTLED') {
+        console.log('💰 Invoice settled!');
+      } else if (invoice.state === 'CANCELED') {
+        console.log('🚫 Invoice canceled');
+      } else if (invoice.state === 'ACCEPTED') {
+        console.log('⏳ Invoice accepted (awaiting settlement)');
+      } else if (invoice.state === 'OPEN') {
+        console.log('📝 Invoice open (awaiting payment)');
+      }
+    });
+    
+    // Single invoice update handler
+    lndClient.on('singleInvoice', (invoice: Invoice) => {
+      console.log('🧾 Single invoice update:');
+      console.log(`• Hash: ${invoice.r_hash || 'unknown'}`);
+      
+      if (invoice.memo) {
+        console.log(`• Memo: ${invoice.memo}`);
+      }
+      
+      if (invoice.value) {
+        console.log(`• Amount: ${invoice.value} sats`);
+      }
+      
+      console.log(`• State: ${invoice.state || 'unknown'}`);
+      
+      // Show timestamps if available
+      if (invoice.creation_date) {
+        const creationDate = new Date(parseInt(invoice.creation_date) * 1000);
+        console.log(`• Created: ${creationDate.toLocaleString()}`);
+      }
+      
+      if (invoice.settle_date) {
+        const settleDate = new Date(parseInt(invoice.settle_date) * 1000);
+        console.log(`• Settled: ${settleDate.toLocaleString()}`);
+      }
+      
+      console.log('-'.repeat(40));
+    });
+    
+    // Payment update handler
     lndClient.on('paymentUpdate', (payment: PaymentStatus) => {
       console.log('💸 Payment update received:');
-      console.log(`- Hash: ${payment.payment_hash}`);
-      console.log(`- Status: ${payment.status}`);
-      console.log(`- Amount: ${payment.value_sat || 0} sats`);
-      console.log(`- Fee: ${payment.fee_sat || 0} sats`);
+      console.log(`• Hash: ${payment.payment_hash || 'unknown'}`);
+      console.log(`• Status: ${payment.status || 'unknown'}`);
       
+      if (payment.value_sat !== undefined) {
+        console.log(`• Amount: ${payment.value_sat} sats`);
+      }
+      
+      if (payment.fee_sat !== undefined) {
+        console.log(`• Fee: ${payment.fee_sat} sats`);
+      }
+      
+      if (payment.creation_time_ns) {
+        const creationDate = new Date(parseInt(payment.creation_time_ns) / 1000000);
+        console.log(`• Created: ${creationDate.toLocaleString()}`);
+      }
+      
+      // Show payment route information if available
+      if (payment.htlcs && payment.htlcs.length > 0) {
+        console.log(`• HTLC count: ${payment.htlcs.length}`);
+        
+        // Show the first HTLC route
+        const firstHtlc = payment.htlcs[0];
+        if (firstHtlc.route && firstHtlc.route.hops && firstHtlc.route.hops.length > 0) {
+          console.log(`• Route hops: ${firstHtlc.route.hops.length}`);
+        }
+      }
+      
+      // Show clear status message
       if (payment.status === 'FAILED') {
-        console.log(`- Failure reason: ${payment.failure_reason}`);
+        console.log(`• Failure reason: ${payment.failure_reason || 'unknown'}`);
         console.log('❌ Payment failed!');
       } else if (payment.status === 'SUCCEEDED') {
         console.log('✅ Payment succeeded!');
       } else if (payment.status === 'IN_FLIGHT') {
         console.log('📤 Payment in flight');
+      } else if (payment.status === 'UNKNOWN') {
+        console.log('❓ Payment status unknown');
+      } else {
+        // Handle any other status values
+        console.log(`🔄 Payment status: ${payment.status}`);
       }
       
-      console.log('-------------------');
+      console.log('-'.repeat(40));
     });
     
+    // Attempt to subscribe to LND streams with more detailed logging
+    // Use smaller retry settings to avoid flooding with reconnection attempts
+    const maxRetries = 5;      // Maximum number of retry attempts
+    const retryDelay = 5000;   // Base delay between retries (5 seconds)
+    const enableRetry = true;  // Enable automatic reconnections
+    
+    console.log('\n1️⃣ Setting up invoice subscription:');
+    console.log('-'.repeat(40));
+    console.log(`• Max retries: ${maxRetries}`);
+    console.log(`• Base retry delay: ${retryDelay}ms (increases exponentially)`);
+    
     try {
-      // Create a subscription for all invoices
-      console.log('\n1️⃣ Setting up subscriptions:');
-      console.log('-'.repeat(40));
-      console.log('Subscribing to all invoices...');
-      const invoiceSubUrl = lndClient.subscribeInvoices(true, 10, 2000); // Enable auto-reconnect, 10 retries, 2s delay
-      console.log(`✅ Subscribed to all invoices`);
+      console.log('🔄 Subscribing to all invoices...');
+      const invoiceSubUrl = lndClient.subscribeInvoices(enableRetry, maxRetries, retryDelay);
+      console.log(`✅ Invoice subscription requested to ${invoiceSubUrl}`);
       
-      // Create a subscription for all payments
-      console.log('Subscribing to all payment updates...');
-      const paymentSubUrl = lndClient.trackPaymentV2(false, true, 10, 2000); // Enable auto-reconnect
-      console.log(`✅ Subscribed to all payments`);
+      // Wait a moment to see if the connection gets established
+      await delay(2000);
       
-      // Only try creating an invoice if we're not using fallback config
-      if (lndConfig.baseUrl !== 'https://your-lnd-node:8080') {
-        // Create a demo invoice to test the subscriptions
+      // Check connection status
+      const invoiceStatus = lndClient.getConnectionStatus(invoiceSubUrl);
+      if (invoiceStatus === 'OPEN') {
+        console.log('✅ Invoice subscription connected successfully');
+      } else {
+        console.log(`⚠️ Invoice subscription status: ${invoiceStatus || 'Unknown'}`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to subscribe to invoices:', error);
+    }
+    
+    // Only try creating a test invoice if we have verified connectivity
+    if (!usingFallback) {
+      try {
         console.log('\n2️⃣ Creating a test invoice:');
         console.log('-'.repeat(40));
-        try {
-          const invoice = await lndClient.addInvoice({
-            memo: 'Test streaming service',
-            value: '1000', // 1000 sats
-            expiry: '3600', // 1 hour
-          });
-          
-          console.log(`✅ Created invoice with payment hash: ${invoice.r_hash}`);
-          console.log(`Payment request: ${invoice.payment_request}`);
-          
-          // Subscribe specifically to this invoice
-          console.log('\n3️⃣ Setting up specific subscriptions:');
-          console.log('-'.repeat(40));
-          console.log('Subscribing to the specific invoice...');
-          const singleInvoiceUrl = lndClient.subscribeSingleInvoice(invoice.r_hash, true); // Enable auto-reconnect
-          console.log(`✅ Subscribed to single invoice`);
-          
-          // For demo purposes, let's track this specific payment too
-          console.log('Setting up tracking for this specific payment...');
-          const paymentTrackUrl = lndClient.trackPaymentByHash(invoice.r_hash, true); // Enable auto-reconnect
-          console.log(`✅ Tracking payment`);
-          
-          // Optional: If you want to test a payment too (requires access to pay invoices)
-          if (process.env.PAY_DEMO_INVOICE === 'true') {
-            setTimeout(async () => {
-              try {
-                console.log('\n4️⃣ Testing a payment (to self):');
-                console.log('-'.repeat(40));
-                
-                // Create a payment request
-                const paymentRequest: SendPaymentRequest = {
-                  payment_request: invoice.payment_request,
-                };
-                
-                console.log('Sending payment...');
-                const paymentResult = await lndClient.sendPaymentV2(paymentRequest);
-                
-                // Check the type of result
-                if (typeof paymentResult === 'string') {
-                  console.log(`✅ Payment tracking started with connection`);
-                } else {
-                  console.log(`✅ Payment initiated: ${paymentResult.payment_hash}`);
-                }
-              } catch (payError) {
-                console.error('❌ Failed to send payment:', payError);
-              }
-            }, 2000);
-          }
-        } catch (invoiceError) {
-          console.error('❌ Failed to create invoice:', invoiceError);
-          console.log('📝 Continuing with subscriptions only (no test invoice)');
+        
+        const invoice = await lndClient.addInvoice({
+          memo: 'Test streaming service',
+          value: '1000', // 1000 sats
+          expiry: '3600', // 1 hour
+        });
+        
+        console.log(`✅ Created invoice with payment hash: ${invoice.r_hash}`);
+        console.log(`📋 Payment request: ${invoice.payment_request}`);
+        
+        // Subscribe to this specific invoice for updates
+        console.log('\n3️⃣ Setting up single invoice subscription:');
+        console.log('-'.repeat(40));
+        console.log(`🔄 Subscribing to invoice with hash: ${invoice.r_hash}`);
+        const singleInvoiceUrl = lndClient.subscribeSingleInvoice(invoice.r_hash, enableRetry, maxRetries, retryDelay);
+        console.log(`✅ Single invoice subscription requested to ${singleInvoiceUrl}`);
+        
+        // Wait a moment to see if the connection gets established
+        await delay(2000);
+        
+        // Check connection status
+        const singleInvoiceStatus = lndClient.getConnectionStatus(singleInvoiceUrl);
+        if (singleInvoiceStatus === 'OPEN') {
+          console.log('✅ Single invoice subscription connected successfully');
+        } else {
+          console.log(`⚠️ Single invoice subscription status: ${singleInvoiceStatus || 'Unknown'}`);
         }
-      } else {
-        console.log('\n⚠️ Using fallback configuration - cannot create real invoices');
-        console.log('To create real invoices, set proper LND connection details in your .env file:');
-        console.log('- LND_REST_API_URL=https://your-lnd-node:8080');
-        console.log('- LND_MACAROON_PATH=/path/to/your/admin.macaroon');
-        console.log('- or LND_MACAROON=your-hex-encoded-macaroon');
+      } catch (error) {
+        console.error('❌ Failed to create or track invoice:', error);
       }
-      
-      // Keep the process running to receive updates
-      console.log('\n🔄 Waiting for updates (press Ctrl+C to exit)...');
-      
-      // Keep process running until Ctrl+C
-      process.on('SIGINT', () => {
-        console.log('\n🔌 Closing all connections...');
-        lndClient.closeAllConnections();
-        console.log('✅ Connections closed. Exiting.');
-        process.exit(0);
-      });
-    } catch (subError) {
-      console.error('❌ Error setting up subscriptions:', subError);
-      lndClient.closeAllConnections();
     }
-  } catch (initError) {
-    console.error('❌ Failed to initialize streaming example:', initError);
+    
+    // Final connection status report
+    console.log('\n📊 Connection Status Report:');
+    console.log('-'.repeat(40));
+    
+    // Loop through all connections and report their status
+    let allConnectionsOk = true;
+    const urls = getAllConnectionUrls(lndClient, lndConfig.baseUrl);
+    
+    for (const url of urls) {
+      const status = lndClient.getConnectionStatus(url);
+      const statusSymbol = status === 'OPEN' ? '✅' : '❌';
+      console.log(`${statusSymbol} ${url}: ${status || 'Unknown'}`);
+      if (status !== 'OPEN') {
+        allConnectionsOk = false;
+      }
+    }
+    
+    if (!allConnectionsOk) {
+      console.log('\n⚠️ Some connections are not open. Common reasons for WebSocket failures:');
+      console.log('1. LND node is not configured to allow connections from your IP');
+      console.log('2. Firewall or proxy blocking WebSocket connections');
+      console.log('3. LND node is not configured with macaroon access for these endpoints');
+      console.log('4. LND REST API proxy might not support WebSockets');
+      console.log('5. TLS certificate verification issues');
+      console.log('\nTroubleshooting tips:');
+      console.log('• Check your LND node configuration');
+      console.log('• Verify your macaroon has permission for invoice and router RPCs');
+      console.log('• Try with TLS verification disabled (for testing only)');
+      console.log('• Check if any proxy between you and LND supports WebSockets');
+    }
+    
+    // Keep the process running to continue receiving updates
+    console.log('\n🔄 Waiting for updates (Press Ctrl+C to exit)...');
+    console.log('Any invoice or payment events will appear here...');
+    console.log('-'.repeat(40));
+    
+    // The process will continue running until Ctrl+C is pressed
+    
+  } catch (error) {
+    console.error('❌ Unhandled error:', error);
+    cleanup();
   }
+}
+
+/**
+ * Gets a human-readable explanation of WebSocket close codes
+ */
+function getWebSocketCloseExplanation(code: number): string {
+  const explanations: Record<number, string> = {
+    1000: 'Normal closure',
+    1001: 'Going away',
+    1002: 'Protocol error',
+    1003: 'Unsupported data',
+    1004: 'Reserved',
+    1005: 'No status received',
+    1006: 'Abnormal closure (connection failed)',
+    1007: 'Invalid frame payload data',
+    1008: 'Policy violation',
+    1009: 'Message too big',
+    1010: 'Missing extension',
+    1011: 'Internal error',
+    1012: 'Service restart',
+    1013: 'Try again later',
+    1014: 'Bad gateway',
+    1015: 'TLS handshake failure'
+  };
+  
+  return explanations[code] || 'Unknown';
+}
+
+/**
+ * Generate a list of all possible connection URLs for status checking
+ */
+function getAllConnectionUrls(client: LndClient, baseUrl: string): string[] {
+  // These are the standard streaming endpoints used by LND
+  return [
+    `${baseUrl}/v1/invoices/subscribe`,
+    `${baseUrl}/v2/router/trackpayments?no_inflight_updates=false`
+  ];
+}
+
+/**
+ * Helper function to pause execution
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Run the example if this file is executed directly

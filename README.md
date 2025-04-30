@@ -223,8 +223,35 @@ FLNDR provides real-time streaming capabilities using WebSockets for various LND
 
 - **subscribeInvoices(enableRetry?, maxRetries?, retryDelay?)**: Subscribe to all invoice updates
 - **subscribeSingleInvoice(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Subscribe to updates for a specific invoice
-- **trackPayments(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Track updates for a specific payment by hash
+- **trackPaymentByHash(paymentHash, enableRetry?, maxRetries?, retryDelay?)**: Track updates for a specific payment by hash
 - **trackPaymentV2(noInflightUpdates?, enableRetry?, maxRetries?, retryDelay?)**: Track all outgoing payments
+
+#### Enhanced WebSocket Features
+
+The WebSocket implementation includes several advanced features:
+
+- **Automatic URL-safe Base64 Encoding**: Payment hashes are automatically converted to the correct format for LND's API
+- **Robust Message Parsing**: Handles LND's complex message formats, including nested JSON and result wrappers
+- **Automatic Reconnection**: All streaming methods support configurable reconnection with exponential backoff
+- **Connection Management**: Easily track and manage WebSocket connections
+- **Comprehensive Error Handling**: Detailed error reporting helps diagnose connection issues
+
+#### Running the Monitoring Examples
+
+FLNDR includes examples demonstrating real-time monitoring capabilities:
+
+```bash
+# Run the streaming example for 60 seconds
+npm run monitor streaming 60
+
+# Run the mocked streaming example (no real LND required)
+npm run monitor mocked
+
+# Show all available monitoring examples
+npm run monitor
+```
+
+See the [monitoring examples README](src/examples/monitoring/README.md) for more details on setting up and using real-time streaming.
 
 #### Payment Tracking with sendPaymentV2
 

@@ -533,7 +533,8 @@ export class LndClient extends EventEmitter {
    * @returns WebSocket URL (wss:// or ws://)
    */
   private httpToWsUrl(httpUrl: string): string {
-    return httpUrl.replace(/^http/, 'ws');
+    // Replace http:// with ws:// and https:// with wss://
+    return httpUrl.replace(/^http(s?):\/\//i, 'ws$1://');
   }
 
   /**
@@ -576,47 +577,95 @@ export class LndClient extends EventEmitter {
   ): WebSocket {
     const wsUrl = this.httpToWsUrl(url);
     
+    // Debug output to help diagnose connection issues
+    console.debug(`Creating WebSocket connection to: ${wsUrl}`);
+    
     // Create WebSocket - handle different constructor signatures for browser vs Node.js
     let ws: any;
     
-    if (typeof window !== 'undefined') {
-      // Browser environment - browsers don't support custom headers in WebSocket constructor
-      ws = new WebSocketImpl(wsUrl);
-    } else {
-      // Node.js environment - use the ws package which supports options
-      ws = new WebSocketImpl(wsUrl, { headers });
+    try {
+      if (typeof window !== 'undefined') {
+        // Browser environment - browsers don't support custom headers in WebSocket constructor
+        ws = new WebSocketImpl(wsUrl);
+        
+        // Some browsers allow setting headers by setting a property on the WebSocket
+        if (headers && ws.headers) {
+          Object.assign(ws.headers, headers);
+        }
+      } else {
+        // Node.js environment - use the ws package which supports options
+        ws = new WebSocketImpl(wsUrl, { headers });
+      }
+      
+      // Set up event listeners
+      this.addEventListenerToWebSocket(ws, 'open', () => {
+        // Reset retry attempts when connection is successful
+        this.retryAttempts.set(url, 0);
+        this.emit('open', { url });
+      });
+
+      this.addEventListenerToWebSocket(ws, 'error', (event) => {
+        const errorMessage = event && event.message ? event.message : 'WebSocket error occurred';
+        const error = new Error(errorMessage);
+        console.error(`WebSocket connection error to ${wsUrl}:`, error);
+        this.emit('error', { url, error });
+      });
+
+      this.addEventListenerToWebSocket(ws, 'close', (event) => {
+        // Handle cross-platform differences between browser & node.js WebSocket
+        const code = typeof event.code === 'number' ? event.code : 0;
+        const reason = typeof event.reason === 'string' ? event.reason : '';
+        
+        this.emit('close', { url, code, reason });
+        this.connections.delete(url);
+        
+        // Implement retry logic if enabled
+        if (enableRetry) {
+          this.retryConnection(url, headers, maxRetries, retryDelay);
+        }
+      });
+
+      // Store the connection for later reference
+      this.connections.set(url, ws);
+      
+      return ws;
+    } catch (error) {
+      console.error(`Failed to create WebSocket connection to ${wsUrl}:`, error);
+      // Emit an error event to inform the client
+      this.emit('error', { 
+        url, 
+        error: error instanceof Error ? error : new Error(String(error)),
+        message: `Failed to create WebSocket connection: ${error instanceof Error ? error.message : String(error)}`
+      });
+      
+      // Return a dummy WebSocket to avoid null reference errors
+      return this.createDummyWebSocket(url);
+    }
+  }
+  
+  /**
+   * Create a dummy WebSocket that doesn't do anything but won't cause errors if methods are called on it
+   * @param url The URL that was attempted to connect to
+   * @returns A dummy WebSocket object
+   */
+  private createDummyWebSocket(url: string): any {
+    // Create a dummy object that implements the WebSocket interface but doesn't do anything
+    const dummy: any = {
+      url,
+      readyState: WS_CLOSED,
+      send: () => {},
+      close: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false
+    };
+    
+    // In Node.js environments, add the 'on' method
+    if (typeof window === 'undefined') {
+      dummy.on = () => dummy;
     }
     
-    // Set up event listeners
-    this.addEventListenerToWebSocket(ws, 'open', () => {
-      // Reset retry attempts when connection is successful
-      this.retryAttempts.set(url, 0);
-      this.emit('open', { url });
-    });
-
-    this.addEventListenerToWebSocket(ws, 'error', (event) => {
-      const error = new Error('WebSocket error occurred');
-      this.emit('error', { url, error });
-    });
-
-    this.addEventListenerToWebSocket(ws, 'close', (event) => {
-      // Handle cross-platform differences between browser & node.js WebSocket
-      const code = typeof event.code === 'number' ? event.code : 0;
-      const reason = typeof event.reason === 'string' ? event.reason : '';
-      
-      this.emit('close', { url, code, reason });
-      this.connections.delete(url);
-      
-      // Implement retry logic if enabled
-      if (enableRetry) {
-        this.retryConnection(url, headers, maxRetries, retryDelay);
-      }
-    });
-
-    // Store the connection for later reference
-    this.connections.set(url, ws);
-    
-    return ws;
+    return dummy;
   }
 
   /**
@@ -809,7 +858,10 @@ export class LndClient extends EventEmitter {
     maxRetries: number = this.defaultMaxRetries,
     retryDelay: number = this.defaultRetryDelay
   ): string {
-    const url = `${this.config.baseUrl}/v2/invoices/subscribe/${paymentHash}`;
+    // Convert the payment hash to URL-safe base64 format
+    const safePaymentHash = toUrlSafeBase64Format(paymentHash);
+    
+    const url = `${this.config.baseUrl}/v2/invoices/subscribe/${safePaymentHash}`;
     const headers = this.getHeaders();
     
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
@@ -841,9 +893,9 @@ export class LndClient extends EventEmitter {
     retryDelay: number = this.defaultRetryDelay
   ): string {
     // Ensure payment hash is properly formatted
-    const formattedHash = paymentHash.startsWith('0x') ? paymentHash.substring(2) : paymentHash;
+    const safePaymentHash = toUrlSafeBase64Format(paymentHash);
     
-    const url = `${this.config.baseUrl}/v2/router/track/${formattedHash}`;
+    const url = `${this.config.baseUrl}/v2/router/track/${safePaymentHash}`;
     const headers = this.getHeaders();
     
     const ws = this.createWebSocketConnection(url, headers, enableRetry, maxRetries, retryDelay);
@@ -907,19 +959,147 @@ export class LndClient extends EventEmitter {
    * @returns Parsed data object
    */
   private parseWebSocketMessage(eventData: any): any {
-    // In browser, event.data contains the data
-    // In Node.js ws package, the data might be passed directly
-    const data = typeof eventData === 'object' && eventData.data !== undefined
-      ? eventData.data  // Browser format: event.data
-      : eventData;      // Node.js format: data directly
+    try {
+      // In browser, event.data contains the data
+      // In Node.js ws package, the data might be passed directly
+      const data = typeof eventData === 'object' && eventData.data !== undefined
+        ? eventData.data  // Browser format: event.data
+        : eventData;      // Node.js format: data directly
       
-    // Handle different data types (string vs Buffer)
-    if (typeof data === 'string') {
-      return JSON.parse(data);
-    } else if (Buffer && (data instanceof Buffer || Buffer.isBuffer(data))) {
-      return JSON.parse(data.toString());
-    } else {
-      throw new Error('Unsupported message data format');
+      // Handle different data types
+      let jsonStr: string;
+      
+      if (typeof data === 'string') {
+        jsonStr = data;
+      } else if (Buffer && (data instanceof Buffer || Buffer.isBuffer(data))) {
+        jsonStr = data.toString('utf8');
+      } else {
+        throw new Error(`Unsupported message data format: ${typeof data}`);
+      }
+      
+      // LND sometimes sends empty messages - handle gracefully
+      if (!jsonStr || jsonStr.trim() === '') {
+        return {}; // Return empty object for empty messages
+      }
+      
+      // Debug output to help diagnose parsing issues
+      console.debug('Raw WebSocket message:', jsonStr.substring(0, 100) + (jsonStr.length > 100 ? '...' : ''));
+      
+      // First try to parse as standard JSON
+      try {
+        const parsed = JSON.parse(jsonStr);
+        
+        // LND often wraps the response in a 'result' object - handle this case
+        if (parsed && typeof parsed === 'object' && parsed.result) {
+          console.debug('Successfully parsed LND message with result wrapper');
+          return parsed.result;
+        }
+        
+        console.debug('Successfully parsed LND message');
+        return parsed;
+      } catch (parseError) {
+        console.debug('Failed to parse as JSON, trying regex extraction', parseError);
+        
+        // If JSON parsing fails, try to extract data from a non-standard format
+        // For invoice subscriptions, LND sometimes sends data in a different format
+        // Try to extract invoice details from the response
+        const invoiceMatch = jsonStr.match(/"r_hash":\s*"([^"]+)"/);
+        const stateMatch = jsonStr.match(/"state":\s*"([^"]+)"/);
+        const valueMatch = jsonStr.match(/"value":\s*"([^"]+)"/);
+        const memoMatch = jsonStr.match(/"memo":\s*"([^"]+)"/);
+        
+        if (invoiceMatch || stateMatch || valueMatch) {
+          // This looks like an invoice update
+          const invoice: Record<string, any> = {};
+          
+          if (invoiceMatch && invoiceMatch[1]) {
+            invoice.r_hash = invoiceMatch[1];
+          }
+          
+          if (stateMatch && stateMatch[1]) {
+            invoice.state = stateMatch[1];
+          }
+          
+          if (valueMatch && valueMatch[1]) {
+            invoice.value = valueMatch[1];
+          }
+          
+          if (memoMatch && memoMatch[1]) {
+            invoice.memo = memoMatch[1];
+          }
+          
+          // Look for other important invoice fields
+          const paymentRequestMatch = jsonStr.match(/"payment_request":\s*"([^"]+)"/);
+          if (paymentRequestMatch && paymentRequestMatch[1]) {
+            invoice.payment_request = paymentRequestMatch[1];
+          }
+          
+          const creationDateMatch = jsonStr.match(/"creation_date":\s*"([^"]+)"/);
+          if (creationDateMatch && creationDateMatch[1]) {
+            invoice.creation_date = creationDateMatch[1];
+          }
+          
+          const settleDateMatch = jsonStr.match(/"settle_date":\s*"([^"]+)"/);
+          if (settleDateMatch && settleDateMatch[1]) {
+            invoice.settle_date = settleDateMatch[1];
+          }
+          
+          console.debug('Extracted invoice data via regex');
+          return invoice;
+        }
+        
+        // For payment updates, try to extract payment details
+        const paymentHashMatch = jsonStr.match(/"payment_hash":\s*"([^"]+)"/);
+        const statusMatch = jsonStr.match(/"status":\s*"([^"]+)"/);
+        
+        if (paymentHashMatch || statusMatch) {
+          // This looks like a payment update
+          const payment: Record<string, any> = {};
+          
+          if (paymentHashMatch && paymentHashMatch[1]) {
+            payment.payment_hash = paymentHashMatch[1];
+          }
+          
+          if (statusMatch && statusMatch[1]) {
+            payment.status = statusMatch[1];
+          }
+          
+          // Extract other payment fields
+          const valueSatMatch = jsonStr.match(/"value_sat":\s*"?(\d+)"?/);
+          if (valueSatMatch && valueSatMatch[1]) {
+            payment.value_sat = parseInt(valueSatMatch[1], 10);
+          }
+          
+          const feeSatMatch = jsonStr.match(/"fee_sat":\s*"?(\d+)"?/);
+          if (feeSatMatch && feeSatMatch[1]) {
+            payment.fee_sat = parseInt(feeSatMatch[1], 10);
+          }
+          
+          console.debug('Extracted payment data via regex');
+          return payment;
+        }
+        
+        // Try to find a 'result' object even if the JSON is malformed
+        const resultMatch = jsonStr.match(/"result"\s*:\s*(\{[^}]+\})/);
+        if (resultMatch && resultMatch[1]) {
+          try {
+            // Try to parse just the result object
+            const resultJson = `{${resultMatch[1]}}`;
+            const resultObj = JSON.parse(resultJson);
+            console.debug('Extracted result object from malformed JSON');
+            return resultObj;
+          } catch (e) {
+            // Continue to fallback if this fails
+          }
+        }
+        
+        // If all else fails, return the raw message
+        console.warn('Failed to parse WebSocket message, returning raw data');
+        return { raw: jsonStr };
+      }
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
+      return {}; // Return empty object instead of throwing to avoid breaking the connection
     }
   }
 
