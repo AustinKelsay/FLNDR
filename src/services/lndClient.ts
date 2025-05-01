@@ -1106,7 +1106,10 @@ export class LndClient extends EventEmitter {
   /**
    * Combined transaction history implementation
    * Fetches both payments and invoices and returns a unified list
-   * Supports pagination through the full transaction history
+   * Supports true pagination through the full transaction history
+   * 
+   * @param request Pagination and filtering options
+   * @returns Paginated transaction history with navigation metadata
    */
   public async listTransactionHistory(request: ListTransactionHistoryRequest = {}): Promise<ListTransactionHistoryResponse> {
     try {
@@ -1114,48 +1117,181 @@ export class LndClient extends EventEmitter {
       const limit = request.limit || 25;
       const offset = request.offset || 0;
       
-      // Common params for both payments and invoices
+      // Storage for our paginated results
+      const transactions: Transaction[] = [];
+      let totalCount = 0;
+      
+      // Common params for both endpoints
       const commonParams = {
         creation_date_start: request.creation_date_start,
         creation_date_end: request.creation_date_end,
         reversed: true // Get newest first
       };
       
-      // For more efficient pagination with large datasets
-      const fetchSize = request.fetchAll ? 1000 : Math.max(100, limit * 2);
-      
-      // Fetch payments (sent transactions)
-      let paymentTransactions: Transaction[] = [];
-      if (!request.types || request.types.includes('sent')) {
-        // For payments, use index_offset for efficient pagination
-        let allPayments: any[] = [];
-        let hasMorePayments = true;
-        let paymentOffset = 0;
+      // Special handling for fetchAll=true option
+      if (request.fetchAll) {
+        const fetchSize = 1000; // Large batch size for fetching all
         
-        while (hasMorePayments && (request.fetchAll || allPayments.length < fetchSize)) {
-          const payments = await this.listPayments({
-            ...commonParams,
-            include_incomplete: true,
-            max_payments: Math.min(fetchSize, 100), // LND may have limits on max_payments
-            index_offset: paymentOffset > 0 ? String(paymentOffset) : undefined
-          });
+        // Fetch payments (sent transactions)
+        let paymentTransactions: Transaction[] = [];
+        if (!request.types || request.types.includes('sent')) {
+          // For payments, use index_offset for efficient pagination
+          let allPayments: any[] = [];
+          let hasMorePayments = true;
+          let paymentOffset = 0;
           
-          if (payments.payments.length === 0) {
-            hasMorePayments = false;
-          } else {
-            allPayments = [...allPayments, ...payments.payments];
-            paymentOffset = payments.last_index_offset ? parseInt(payments.last_index_offset) : 0;
+          while (hasMorePayments) {
+            const payments = await this.listPayments({
+              ...commonParams,
+              include_incomplete: true,
+              max_payments: 100, // LND may have limits on max_payments
+              index_offset: paymentOffset > 0 ? String(paymentOffset) : undefined
+            });
             
-            // Stop if we have enough data and not fetching all
-            if (!request.fetchAll && allPayments.length >= fetchSize) {
+            if (payments.payments.length === 0) {
               hasMorePayments = false;
+            } else {
+              allPayments = [...allPayments, ...payments.payments];
+              paymentOffset = payments.last_index_offset ? parseInt(payments.last_index_offset) : 0;
+              
+              // Stop if we have enough data or reached the end
+              if (allPayments.length >= fetchSize || payments.payments.length < 100) {
+                hasMorePayments = false;
+              }
             }
           }
+          
+          paymentTransactions = allPayments.map(payment => ({
+            id: payment.payment_hash,
+            type: 'sent',
+            amount: parseInt(payment.value_sat || '0'),
+            fee: parseInt(payment.fee_sat || '0'),
+            timestamp: parseInt(payment.creation_date || '0'),
+            status: this.mapPaymentStatus(payment.status),
+            description: payment.payment_request || '',
+            preimage: payment.payment_preimage || '',
+            destination: payment.path && payment.path.length > 0 ? payment.path[payment.path.length - 1] : '',
+            payment_hash: payment.payment_hash,
+            raw_payment: payment,
+            raw_invoice: null
+          }));
         }
         
-        paymentTransactions = allPayments.map(payment => ({
+        // Fetch invoices (received transactions)
+        let invoiceTransactions: Transaction[] = [];
+        if (!request.types || request.types.includes('received')) {
+          // For invoices, use index_offset for efficient pagination
+          let allInvoices: any[] = [];
+          let hasMoreInvoices = true;
+          let invoiceOffset = 0;
+          
+          while (hasMoreInvoices) {
+            const invoices = await this.listInvoices({
+              ...commonParams,
+              pending_only: false,
+              num_max_invoices: 100, // LND may have limits
+              index_offset: invoiceOffset > 0 ? String(invoiceOffset) : undefined
+            });
+            
+            if (invoices.invoices.length === 0) {
+              hasMoreInvoices = false;
+            } else {
+              allInvoices = [...allInvoices, ...invoices.invoices];
+              invoiceOffset = invoices.last_index_offset ? parseInt(invoices.last_index_offset) : 0;
+              
+              // Stop if we have enough data or reached the end
+              if (allInvoices.length >= fetchSize || invoices.invoices.length < 100) {
+                hasMoreInvoices = false;
+              }
+            }
+          }
+          
+          invoiceTransactions = allInvoices.map(invoice => ({
+            id: invoice.r_hash,
+            type: 'received',
+            amount: parseInt(invoice.value || '0'),
+            fee: 0, // Received transactions don't have fees for the receiver
+            timestamp: parseInt(invoice.creation_date || '0'),
+            status: this.mapInvoiceStatus(invoice),
+            description: invoice.memo || '',
+            preimage: invoice.r_preimage || '',
+            destination: '',
+            payment_hash: invoice.r_hash,
+            raw_payment: null,
+            raw_invoice: invoice
+          }));
+        }
+        
+        // Combine all transactions
+        transactions.push(...paymentTransactions, ...invoiceTransactions);
+        
+        // Apply status filter if requested
+        if (request.statuses && request.statuses.length > 0) {
+          const filteredTransactions = transactions.filter(tx => request.statuses!.includes(tx.status));
+          transactions.length = 0;
+          transactions.push(...filteredTransactions);
+        }
+        
+        // Sort by timestamp descending (newest first)
+        transactions.sort((a, b) => b.timestamp - a.timestamp);
+        
+        // Store total count
+        totalCount = transactions.length;
+        
+        // Apply pagination
+        const paginatedTransactions = transactions.slice(offset, offset + limit);
+        
+        // Get next_cursor for continuation if needed
+        const nextCursor = offset + limit < totalCount ? 
+          { offset: offset + limit, limit } : 
+          undefined;
+        
+        return {
+          transactions: paginatedTransactions,
+          offset,
+          limit,
+          total_count: totalCount,
+          has_more: offset + limit < totalCount,
+          next_cursor: nextCursor
+        };
+      }
+      
+      // Standard pagination approach with cursors for regular requests (fetchAll=false)
+      // We'll use token-based pagination approach with two separate cursors
+      // This is necessary because we need to merge two separate data sources
+      const pageInfo = {
+        paymentCursor: request.payment_cursor || null,
+        invoiceCursor: request.invoice_cursor || null,
+        paymentExhausted: false,
+        invoiceExhausted: false,
+        // If we have explicit cursors, we're in the middle of pagination
+        hasCursors: !!(request.payment_cursor || request.invoice_cursor)
+      };
+      
+      // For the initial request or when payment type is included
+      let payments: any[] = [];
+      let paymentCount = 0;
+      
+      if (!request.types || request.types.includes('sent')) {
+        // Fetch a single page of payments
+        const paymentResponse = await this.listPayments({
+          ...commonParams,
+          include_incomplete: true,
+          max_payments: limit,
+          index_offset: pageInfo.paymentCursor || undefined
+        });
+        
+        payments = paymentResponse.payments || [];
+        paymentCount = paymentResponse.total_num_payments ? parseInt(paymentResponse.total_num_payments) : 0;
+        
+        // Update cursor for next page
+        pageInfo.paymentCursor = payments.length > 0 ? paymentResponse.last_index_offset : null;
+        pageInfo.paymentExhausted = payments.length === 0;
+        
+        // Map payments to our unified transaction format
+        const paymentTransactions = payments.map(payment => ({
           id: payment.payment_hash,
-          type: 'sent',
+          type: 'sent' as TransactionType,
           amount: parseInt(payment.value_sat || '0'),
           fee: parseInt(payment.fee_sat || '0'),
           timestamp: parseInt(payment.creation_date || '0'),
@@ -1167,81 +1303,109 @@ export class LndClient extends EventEmitter {
           raw_payment: payment,
           raw_invoice: null
         }));
+        
+        transactions.push(...paymentTransactions);
+      } else {
+        // If we're only fetching received transactions, mark payments as exhausted
+        pageInfo.paymentExhausted = true;
       }
       
-      // Fetch invoices (received transactions)
-      let invoiceTransactions: Transaction[] = [];
+      // For the initial request or when received type is included
+      let invoices: Invoice[] = [];
+      let invoiceCount = 0;
+      
       if (!request.types || request.types.includes('received')) {
-        // For invoices, use index_offset for efficient pagination
-        let allInvoices: any[] = [];
-        let hasMoreInvoices = true;
-        let invoiceOffset = 0;
+        // Calculate how many more invoices we need to fill the page
+        const remainingItems = limit - transactions.length;
         
-        while (hasMoreInvoices && (request.fetchAll || allInvoices.length < fetchSize)) {
-          const invoices = await this.listInvoices({
+        if (remainingItems > 0 && !pageInfo.invoiceExhausted) {
+          // Fetch a single page of invoices
+          const invoiceResponse = await this.listInvoices({
             ...commonParams,
             pending_only: false,
-            num_max_invoices: Math.min(fetchSize, 100), // LND may have limits
-            index_offset: invoiceOffset > 0 ? String(invoiceOffset) : undefined
+            num_max_invoices: remainingItems,
+            index_offset: pageInfo.invoiceCursor || undefined
           });
           
-          if (invoices.invoices.length === 0) {
-            hasMoreInvoices = false;
+          invoices = invoiceResponse.invoices || [];
+          
+          // Update cursor for next page
+          pageInfo.invoiceCursor = invoices.length > 0 ? invoiceResponse.last_index_offset : null;
+          pageInfo.invoiceExhausted = invoices.length === 0;
+          
+          // Map invoices to our unified transaction format
+          const invoiceTransactions = invoices.map(invoice => ({
+            id: invoice.r_hash,
+            type: 'received' as TransactionType,
+            amount: parseInt(invoice.value || '0'),
+            fee: 0, // Received transactions don't have fees for the receiver
+            timestamp: parseInt(invoice.creation_date || '0'),
+            status: this.mapInvoiceStatus(invoice),
+            description: invoice.memo || '',
+            preimage: invoice.r_preimage || '',
+            destination: '',
+            payment_hash: invoice.r_hash,
+            raw_payment: null,
+            raw_invoice: invoice
+          }));
+          
+          // Filter by status if requested
+          if (request.statuses && request.statuses.length > 0) {
+            const filteredInvoices = invoiceTransactions.filter(tx => 
+              request.statuses!.includes(tx.status)
+            );
+            transactions.push(...filteredInvoices);
           } else {
-            allInvoices = [...allInvoices, ...invoices.invoices];
-            invoiceOffset = invoices.last_index_offset ? parseInt(invoices.last_index_offset) : 0;
-            
-            // Stop if we have enough data and not fetching all
-            if (!request.fetchAll && allInvoices.length >= fetchSize) {
-              hasMoreInvoices = false;
-            }
+            transactions.push(...invoiceTransactions);
           }
+        } else {
+          // Mark invoices as exhausted if we don't need more or already exhausted
+          pageInfo.invoiceExhausted = true;
         }
-        
-        invoiceTransactions = allInvoices.map(invoice => ({
-          id: invoice.r_hash,
-          type: 'received',
-          amount: parseInt(invoice.value || '0'),
-          fee: 0, // Received transactions don't have fees for the receiver
-          timestamp: parseInt(invoice.creation_date || '0'),
-          status: this.mapInvoiceStatus(invoice),
-          description: invoice.memo || '',
-          preimage: invoice.r_preimage || '',
-          destination: '',
-          payment_hash: invoice.r_hash,
-          raw_payment: null,
-          raw_invoice: invoice
-        }));
+      } else {
+        // If we're only fetching sent transactions, mark invoices as exhausted
+        pageInfo.invoiceExhausted = true;
       }
       
-      // Combine all transactions
-      let allTransactions: Transaction[] = [...paymentTransactions, ...invoiceTransactions];
-      
-      // Apply status filter if requested
+      // Apply status filter to payments if requested
       if (request.statuses && request.statuses.length > 0) {
-        allTransactions = allTransactions.filter(tx => request.statuses!.includes(tx.status));
+        const paymentTransactions = transactions.filter(tx => 
+          tx.type === 'sent' && request.statuses!.includes(tx.status)
+        );
+        const invoiceTransactions = transactions.filter(tx => 
+          tx.type === 'received'
+        );
+        transactions.length = 0;
+        transactions.push(...paymentTransactions, ...invoiceTransactions);
       }
       
-      // Sort by timestamp descending (newest first)
-      allTransactions.sort((a, b) => b.timestamp - a.timestamp);
+      // Sort by timestamp, newest first
+      transactions.sort((a, b) => b.timestamp - a.timestamp);
       
-      // Store total count before pagination
-      const totalCount = allTransactions.length;
+      // Calculate estimated total count
+      // This is an estimate since we can't know exact count without fetching everything
+      totalCount = Math.max(
+        pageInfo.paymentExhausted && pageInfo.invoiceExhausted ? 
+          transactions.length : 
+          limit * 10 // Just provide a reasonable guess when we don't know
+      );
       
-      // Apply pagination
-      const paginatedTransactions = allTransactions.slice(offset, offset + limit);
+      // If we have both payment and invoice cursors, we can provide next_cursor
+      const hasMore = !pageInfo.paymentExhausted || !pageInfo.invoiceExhausted;
       
-      // Get next_cursor for continuation if needed
-      const nextCursor = offset + limit < totalCount ? 
-        { offset: offset + limit, limit } : 
-        undefined;
+      const nextCursor = hasMore ? {
+        offset: offset + transactions.length,
+        limit,
+        payment_cursor: pageInfo.paymentCursor,
+        invoice_cursor: pageInfo.invoiceCursor
+      } : undefined;
       
       return {
-        transactions: paginatedTransactions,
+        transactions,
         offset,
         limit,
         total_count: totalCount,
-        has_more: offset + limit < totalCount,
+        has_more: hasMore,
         next_cursor: nextCursor
       };
     } catch (error) {

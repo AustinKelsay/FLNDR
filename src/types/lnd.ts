@@ -445,6 +445,16 @@ export interface ListTransactionHistoryRequest {
    * This may result in multiple API calls
    */
   fetchAll?: boolean;
+  /**
+   * Cursor for pagination of payment records
+   * Used internally for efficient pagination
+   */
+  payment_cursor?: string | null;
+  /**
+   * Cursor for pagination of invoice records
+   * Used internally for efficient pagination
+   */
+  invoice_cursor?: string | null;
 }
 
 /**
@@ -463,5 +473,7 @@ export interface ListTransactionHistoryResponse {
   next_cursor?: {
     offset: number;
     limit: number;
+    payment_cursor?: string | null;
+    invoice_cursor?: string | null;
   };
 } 
