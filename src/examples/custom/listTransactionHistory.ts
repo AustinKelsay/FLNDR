@@ -211,6 +211,7 @@ async function filterByDateRange(): Promise<void> {
  * The method returns pagination metadata:
  * - total_count: Total number of matching transactions
  * - has_more: Boolean indicating if there are more pages
+ * - next_cursor: Object containing the offset and limit for the next page
  */
 async function paginatedResults(): Promise<void> {
   try {
@@ -230,17 +231,17 @@ async function paginatedResults(): Promise<void> {
       printTransaction(tx);
     }
     
-    if (page1.has_more) {
-      console.log('\n🔍 PAGINATED RESULTS - PAGE 2 (2 ITEMS)');
-      console.log('=====================================');
+    if (page1.has_more && page1.next_cursor) {
+      console.log('\n🔍 PAGINATED RESULTS - PAGE 2 (Using next_cursor)');
+      console.log('==========================================');
       
-      // Second page
+      // Second page using next_cursor for easier pagination
       const page2 = await lndClient.listTransactionHistory({
-        limit: 2,
-        offset: 2
+        limit: page1.next_cursor.limit,
+        offset: page1.next_cursor.offset
       });
       
-      console.log(`Page 2: ${page2.transactions.length} items (Items 3-${2 + page2.transactions.length} of ${page2.total_count})`);
+      console.log(`Page 2: ${page2.transactions.length} items (Items ${page1.next_cursor.offset + 1}-${page1.next_cursor.offset + page2.transactions.length} of ${page2.total_count})`);
       console.log(`Has more pages: ${page2.has_more ? 'Yes' : 'No'}\n`);
       
       for (const tx of page2.transactions) {
@@ -288,6 +289,41 @@ async function combinedFilters(): Promise<void> {
 }
 
 /**
+ * Example 7: Fetch all transactions
+ * 
+ * The listTransactionHistory method supports fetching all transactions
+ * efficiently using the fetchAll parameter:
+ * - Makes efficient batched API calls under the hood
+ * - Returns all transactions in a single request
+ * - Useful for export/backup scenarios
+ */
+async function fetchAllTransactionsAtOnce(): Promise<void> {
+  try {
+    console.log('\n🔍 FETCH ALL TRANSACTIONS AT ONCE');
+    console.log('================================');
+    
+    const start = Date.now();
+    const history = await lndClient.listTransactionHistory({
+      fetchAll: true
+    });
+    const duration = Date.now() - start;
+    
+    console.log(`Retrieved all ${history.transactions.length} transactions in ${duration}ms\n`);
+    console.log(`First 3 transactions (of ${history.transactions.length}):`);
+    
+    // Only show first few transactions to keep the output manageable
+    for (const tx of history.transactions.slice(0, 3)) {
+      printTransaction(tx);
+    }
+    
+    console.log(`...and ${history.transactions.length - 3} more`);
+    
+  } catch (error) {
+    console.error('Error fetching all transactions:', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
  * Run all examples sequentially
  */
 async function runExamples(): Promise<void> {
@@ -304,6 +340,7 @@ async function runExamples(): Promise<void> {
     await filterByDateRange();
     await paginatedResults();
     await combinedFilters();
+    await fetchAllTransactionsAtOnce();
     
     console.log('\n✅ ALL EXAMPLES COMPLETED');
   } catch (error) {
