@@ -440,6 +440,11 @@ export interface ListTransactionHistoryRequest {
   statuses?: TransactionStatus[];
   creation_date_start?: string;
   creation_date_end?: string;
+  /**
+   * When true, attempts to fetch all available transactions
+   * This may result in multiple API calls
+   */
+  fetchAll?: boolean;
 }
 
 /**
@@ -451,4 +456,12 @@ export interface ListTransactionHistoryResponse {
   limit: number;
   total_count: number;
   has_more: boolean;
+  /**
+   * Information for fetching the next page of results
+   * Only present when has_more is true
+   */
+  next_cursor?: {
+    offset: number;
+    limit: number;
+  };
 } 

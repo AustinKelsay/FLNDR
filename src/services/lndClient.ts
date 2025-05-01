@@ -1106,6 +1106,7 @@ export class LndClient extends EventEmitter {
   /**
    * Combined transaction history implementation
    * Fetches both payments and invoices and returns a unified list
+   * Supports pagination through the full transaction history
    */
   public async listTransactionHistory(request: ListTransactionHistoryRequest = {}): Promise<ListTransactionHistoryResponse> {
     try {
@@ -1120,16 +1121,39 @@ export class LndClient extends EventEmitter {
         reversed: true // Get newest first
       };
       
+      // For more efficient pagination with large datasets
+      const fetchSize = request.fetchAll ? 1000 : Math.max(100, limit * 2);
+      
       // Fetch payments (sent transactions)
       let paymentTransactions: Transaction[] = [];
       if (!request.types || request.types.includes('sent')) {
-        const payments = await this.listPayments({
-          ...commonParams,
-          include_incomplete: true,
-          max_payments: 100
-        });
+        // For payments, use index_offset for efficient pagination
+        let allPayments: any[] = [];
+        let hasMorePayments = true;
+        let paymentOffset = 0;
         
-        paymentTransactions = payments.payments.map(payment => ({
+        while (hasMorePayments && (request.fetchAll || allPayments.length < fetchSize)) {
+          const payments = await this.listPayments({
+            ...commonParams,
+            include_incomplete: true,
+            max_payments: Math.min(fetchSize, 100), // LND may have limits on max_payments
+            index_offset: paymentOffset > 0 ? String(paymentOffset) : undefined
+          });
+          
+          if (payments.payments.length === 0) {
+            hasMorePayments = false;
+          } else {
+            allPayments = [...allPayments, ...payments.payments];
+            paymentOffset = payments.last_index_offset ? parseInt(payments.last_index_offset) : 0;
+            
+            // Stop if we have enough data and not fetching all
+            if (!request.fetchAll && allPayments.length >= fetchSize) {
+              hasMorePayments = false;
+            }
+          }
+        }
+        
+        paymentTransactions = allPayments.map(payment => ({
           id: payment.payment_hash,
           type: 'sent',
           amount: parseInt(payment.value_sat || '0'),
@@ -1148,13 +1172,33 @@ export class LndClient extends EventEmitter {
       // Fetch invoices (received transactions)
       let invoiceTransactions: Transaction[] = [];
       if (!request.types || request.types.includes('received')) {
-        const invoices = await this.listInvoices({
-          ...commonParams,
-          pending_only: false,
-          num_max_invoices: 100
-        });
+        // For invoices, use index_offset for efficient pagination
+        let allInvoices: any[] = [];
+        let hasMoreInvoices = true;
+        let invoiceOffset = 0;
         
-        invoiceTransactions = invoices.invoices.map(invoice => ({
+        while (hasMoreInvoices && (request.fetchAll || allInvoices.length < fetchSize)) {
+          const invoices = await this.listInvoices({
+            ...commonParams,
+            pending_only: false,
+            num_max_invoices: Math.min(fetchSize, 100), // LND may have limits
+            index_offset: invoiceOffset > 0 ? String(invoiceOffset) : undefined
+          });
+          
+          if (invoices.invoices.length === 0) {
+            hasMoreInvoices = false;
+          } else {
+            allInvoices = [...allInvoices, ...invoices.invoices];
+            invoiceOffset = invoices.last_index_offset ? parseInt(invoices.last_index_offset) : 0;
+            
+            // Stop if we have enough data and not fetching all
+            if (!request.fetchAll && allInvoices.length >= fetchSize) {
+              hasMoreInvoices = false;
+            }
+          }
+        }
+        
+        invoiceTransactions = allInvoices.map(invoice => ({
           id: invoice.r_hash,
           type: 'received',
           amount: parseInt(invoice.value || '0'),
@@ -1181,18 +1225,24 @@ export class LndClient extends EventEmitter {
       // Sort by timestamp descending (newest first)
       allTransactions.sort((a, b) => b.timestamp - a.timestamp);
       
-      // Calculate total count before pagination
+      // Store total count before pagination
       const totalCount = allTransactions.length;
       
       // Apply pagination
       const paginatedTransactions = allTransactions.slice(offset, offset + limit);
+      
+      // Get next_cursor for continuation if needed
+      const nextCursor = offset + limit < totalCount ? 
+        { offset: offset + limit, limit } : 
+        undefined;
       
       return {
         transactions: paginatedTransactions,
         offset,
         limit,
         total_count: totalCount,
-        has_more: offset + limit < totalCount
+        has_more: offset + limit < totalCount,
+        next_cursor: nextCursor
       };
     } catch (error) {
       console.error('Error in transaction history:', error);
