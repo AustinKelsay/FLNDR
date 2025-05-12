@@ -202,50 +202,51 @@ async function filterByDateRange(): Promise<void> {
 }
 
 /**
- * Example 5: Paginated results
+ * Example 5: Efficient Pagination with Cursors
  * 
- * The listTransactionHistory method supports pagination:
- * - limit: Maximum number of items to return (default: 25)
- * - offset: Number of items to skip (default: 0)
- * 
- * The method returns pagination metadata:
- * - total_count: Total number of matching transactions
- * - has_more: Boolean indicating if there are more pages
- * - next_cursor: Object containing the offset and limit for the next page
+ * The optimized listTransactionHistory method supports efficient pagination:
+ * - Uses separate cursors for payments and invoices for accurate navigation
+ * - Returns a next_cursor object with all details needed for the next page
+ * - Optimizes fetching by using a batch size larger than requested page size
  */
-async function paginatedResults(): Promise<void> {
+async function efficientPagination(): Promise<void> {
   try {
-    console.log('\n🔍 PAGINATED RESULTS - PAGE 1 (2 ITEMS)');
-    console.log('=====================================');
+    console.log('\n🔍 EFFICIENT PAGINATION WITH CURSORS');
+    console.log('===================================');
     
-    // First page
+    // First page - small page size to demonstrate pagination
+    const pageSize = 5;
+    console.log(`Fetching first ${pageSize} transactions...`);
+    
     const page1 = await lndClient.listTransactionHistory({
-      limit: 2,
+      limit: pageSize,
       offset: 0
     });
     
-    console.log(`Page 1: ${page1.transactions.length} items (Items 1-${page1.transactions.length} of ${page1.total_count})`);
-    console.log(`Has more pages: ${page1.has_more ? 'Yes' : 'No'}\n`);
+    console.log(`Page 1: ${page1.transactions.length} items (of ${page1.total_count} total)\n`);
     
     for (const tx of page1.transactions) {
       printTransaction(tx);
     }
     
     if (page1.has_more && page1.next_cursor) {
-      console.log('\n🔍 PAGINATED RESULTS - PAGE 2 (Using next_cursor)');
-      console.log('==========================================');
+      console.log('\nFetching next page using cursors...');
       
-      // Second page using next_cursor for easier pagination
+      // Second page using next_cursor with payment_cursor and invoice_cursor
       const page2 = await lndClient.listTransactionHistory({
-        limit: page1.next_cursor.limit,
-        offset: page1.next_cursor.offset
+        limit: pageSize,
+        payment_cursor: page1.next_cursor.payment_cursor,
+        invoice_cursor: page1.next_cursor.invoice_cursor
       });
       
-      console.log(`Page 2: ${page2.transactions.length} items (Items ${page1.next_cursor.offset + 1}-${page1.next_cursor.offset + page2.transactions.length} of ${page2.total_count})`);
-      console.log(`Has more pages: ${page2.has_more ? 'Yes' : 'No'}\n`);
+      console.log(`\nPage 2: ${page2.transactions.length} items using payment_cursor=${page1.next_cursor.payment_cursor} and invoice_cursor=${page1.next_cursor.invoice_cursor}\n`);
       
       for (const tx of page2.transactions) {
         printTransaction(tx);
+      }
+      
+      if (page2.has_more) {
+        console.log('\nMore pages available...');
       }
     }
     
@@ -289,37 +290,83 @@ async function combinedFilters(): Promise<void> {
 }
 
 /**
- * Example 7: Fetch all transactions
+ * Example 7: Fetching a large number of transactions efficiently
  * 
- * The listTransactionHistory method supports fetching all transactions
- * efficiently using the fetchAll parameter:
- * - Makes efficient batched API calls under the hood
- * - Returns all transactions in a single request
- * - Useful for export/backup scenarios
+ * The optimized listTransactionHistory method provides two options:
+ * 1. Paginated fetching with cursors (recommended for large datasets)
+ * 2. FetchAll option with a warning for large datasets
+ * 
+ * This example demonstrates both approaches
  */
-async function fetchAllTransactionsAtOnce(): Promise<void> {
+async function efficientLargeDatasetHandling(): Promise<void> {
   try {
-    console.log('\n🔍 FETCH ALL TRANSACTIONS AT ONCE');
-    console.log('================================');
+    console.log('\n🔍 HANDLING LARGE DATASETS EFFICIENTLY');
+    console.log('===================================');
+    
+    // Option 1: Use fetchAll (will show warning in console)
+    console.log('\nOption 1: Using fetchAll (convenient but less efficient for large datasets)');
     
     const start = Date.now();
-    const history = await lndClient.listTransactionHistory({
-      fetchAll: true
+    const allAtOnce = await lndClient.listTransactionHistory({
+      fetchAll: true,
+      limit: 1000 // This will be used as batch size
     });
     const duration = Date.now() - start;
     
-    console.log(`Retrieved all ${history.transactions.length} transactions in ${duration}ms\n`);
-    console.log(`First 3 transactions (of ${history.transactions.length}):`);
+    console.log(`Retrieved all ${allAtOnce.transactions.length} transactions in ${duration}ms`);
+    console.log('Note: This method can be inefficient for very large datasets. Check console for warnings.');
+    
+    // Option 2: Manual batched fetching for greater control
+    console.log('\nOption 2: Manual batched fetching for large datasets (more efficient)');
+    
+    // Track all transactions
+    const allTransactions: Transaction[] = [];
+    let hasMore = true;
+    let paymentCursor = '0';
+    let invoiceCursor = '0';
+    const pageSize = 100;
+    let pageCount = 0;
+    
+    console.log('Fetching transactions in batches of 100...');
+    
+    const batchStart = Date.now();
+    
+    // Keep fetching until we have all transactions or reach a limit
+    while (hasMore && pageCount < 10) { // Limit to 10 pages for this example
+      pageCount++;
+      
+      const page = await lndClient.listTransactionHistory({
+        limit: pageSize,
+        payment_cursor: paymentCursor,
+        invoice_cursor: invoiceCursor
+      });
+      
+      allTransactions.push(...page.transactions);
+      
+      console.log(`  Batch ${pageCount}: +${page.transactions.length} transactions (total: ${allTransactions.length})`);
+      
+      // Update for next iteration
+      hasMore = page.has_more;
+      if (page.next_cursor) {
+        paymentCursor = page.next_cursor.payment_cursor || '0';
+        invoiceCursor = page.next_cursor.invoice_cursor || '0';
+      } else {
+        break;
+      }
+    }
+    
+    const batchDuration = Date.now() - batchStart;
+    
+    console.log(`\nRetrieved ${allTransactions.length} transactions in ${batchDuration}ms using batched fetching`);
+    console.log(`First few transactions of ${allTransactions.length} total:`);
     
     // Only show first few transactions to keep the output manageable
-    for (const tx of history.transactions.slice(0, 3)) {
+    for (const tx of allTransactions.slice(0, 3)) {
       printTransaction(tx);
     }
     
-    console.log(`...and ${history.transactions.length - 3} more`);
-    
   } catch (error) {
-    console.error('Error fetching all transactions:', error instanceof Error ? error.message : String(error));
+    console.error('Error handling large datasets:', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -330,17 +377,17 @@ async function runExamples(): Promise<void> {
   try {
     console.log('🚀 TRANSACTION HISTORY EXAMPLES');
     console.log('==============================');
-    console.log('Demonstrating the listTransactionHistory method - FLNDR\'s first custom method');
-    console.log('that enhances standard LND functionality by combining payments and invoices');
-    console.log('into a unified, filterable transaction history.');
+    console.log('Demonstrating the optimized listTransactionHistory method');
+    console.log('that efficiently handles large transaction volumes with batch fetching');
+    console.log('and cursor-based pagination');
     
     await fetchAllTransactions();
     await filterByType();
     await filterByStatus();
     await filterByDateRange();
-    await paginatedResults();
+    await efficientPagination(); // New example for cursor-based pagination
     await combinedFilters();
-    await fetchAllTransactionsAtOnce();
+    await efficientLargeDatasetHandling(); // New example for large dataset handling
     
     console.log('\n✅ ALL EXAMPLES COMPLETED');
   } catch (error) {
