@@ -25,7 +25,7 @@ import {
   ListTransactionHistoryRequest,
   ListTransactionHistoryResponse
 } from '../types/lnd';
-import { toUrlSafeBase64Format, hexToUrlSafeBase64 } from '../utils/base64Utils';
+import { toUrlSafeBase64Format, hexToUrlSafeBase64, formatLndPaymentHash } from '../utils/base64Utils';
 
 // Handle WebSocket implementation differences
 // This dynamic approach ensures compatibility with both browser and Node.js environments
@@ -317,32 +317,25 @@ export class LndClient extends EventEmitter {
    */
   public async lookupInvoiceV2(paymentHash: string): Promise<Invoice> {
     try {
-      // Convert the payment hash to URL-safe base64 format
-      const urlSafeBase64Hash = toUrlSafeBase64Format(paymentHash);
+      console.debug('Raw payment hash:', paymentHash);
       
-      // Create request params
-      const params: LookupInvoiceV2Request = {
-        payment_hash: urlSafeBase64Hash
-      };
+      // Use the new utility to properly format the payment hash for LND
+      const formattedHash = formatLndPaymentHash(paymentHash);
+      console.debug('Formatted hash for LND:', formattedHash);
       
-      // Use the v2 endpoint with URL-safe base64
-      const response = await this.client.get<Invoice>(`/v2/invoices/lookup`, {
-        params
-      });
+      // Use the v2 endpoint with properly formatted parameter
+      const response = await this.client.get<Invoice>(`/v2/invoices/lookup?payment_hash=${formattedHash}`);
       
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
-        // Extract detailed error information if available
         const status = error.response.status;
         const errorData = error.response.data;
         
-        // For error types, include as much detail as possible
         const errorDetail = typeof errorData === 'object' ? JSON.stringify(errorData) : errorData;
         throw new Error(`Failed to lookup invoice (status ${status}): ${errorDetail || error.message}`);
       }
       
-      // For non-Axios errors or missing response
       throw new Error(`Failed to lookup invoice: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

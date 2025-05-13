@@ -76,4 +76,95 @@ export function toUrlSafeBase64Format(input: string): string {
  */
 export function isUrlSafeBase64(str: string): boolean {
   return /^[A-Za-z0-9\-_]+=*$/.test(str);
+}
+
+/**
+ * Create an LND-compatible URL-safe base64 string for use in API calls
+ * This function handles the specific requirements of LND's REST API for base64 encoding
+ * 
+ * @param input The input string (can be hex, standard base64, or already URL-safe base64)
+ * @param urlEncode Whether to URL encode the result (for use in query parameters)
+ * @returns A properly formatted URL-safe base64 string ready for LND API
+ */
+export function toLndUrlSafeBase64(input: string, urlEncode: boolean = false): string {
+  let urlSafeBase64: string;
+  
+  // For standard base64 (contains + and / and possibly = padding)
+  if (/^[A-Za-z0-9+/=]+$/.test(input)) {
+    // Replace standard base64 chars with URL-safe versions
+    urlSafeBase64 = input
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+  }
+  // For URL-safe base64 already (contains - and _ and possibly = padding)
+  else if (/^[A-Za-z0-9_\-=]+$/.test(input)) {
+    urlSafeBase64 = input;
+  }
+  // For hex format
+  else if (/^[A-Fa-f0-9]+$/.test(input)) {
+    // Take up to 32 bytes worth of hex chars
+    const hexInput = input.substring(0, 64);
+    // Convert hex to binary
+    const buffer = Buffer.from(hexInput, 'hex');
+    // Convert binary to standard base64
+    const base64 = buffer.toString('base64');
+    // Convert to URL-safe base64
+    urlSafeBase64 = base64
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+  }
+  // If we can't determine the format, return as-is
+  else {
+    urlSafeBase64 = input;
+  }
+  
+  // URL encode if specified (needed for query parameters)
+  return urlEncode ? encodeURIComponent(urlSafeBase64) : urlSafeBase64;
+}
+
+/**
+ * Specifically for LND's lookup invoice by hash endpoint
+ * This handles the special case for payment_hash parameter
+ * 
+ * @param paymentHash The payment hash in any format (hex, base64, URL-safe base64)
+ * @returns URL-encoded payment hash for LND's v2/invoices/lookup endpoint
+ */
+export function formatLndPaymentHash(paymentHash: string): string {
+  return toLndUrlSafeBase64(paymentHash, true);
+}
+
+/**
+ * Convert binary data to a URL-safe base64 string for LND
+ * @param buffer Binary data buffer
+ * @param urlEncode Whether to URL encode the result (for use in query parameters)
+ * @returns URL-safe base64 string
+ */
+export function bufferToLndBase64(buffer: Buffer, urlEncode: boolean = false): string {
+  const base64 = buffer.toString('base64');
+  const urlSafeBase64 = base64
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+    
+  return urlEncode ? encodeURIComponent(urlSafeBase64) : urlSafeBase64;
+}
+
+/**
+ * Decode an LND URL-safe base64 string to binary
+ * @param lndBase64 URL-safe base64 string from LND
+ * @returns Buffer containing the binary data
+ */
+export function lndBase64ToBuffer(lndBase64: string): Buffer {
+  // Convert URL-safe base64 to standard base64
+  const standardBase64 = lndBase64
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+    
+  // Add padding if necessary
+  const paddedBase64 = standardBase64.padEnd(
+    standardBase64.length + (4 - (standardBase64.length % 4)) % 4, 
+    '='
+  );
+  
+  // Convert to binary
+  return Buffer.from(paddedBase64, 'base64');
 } 

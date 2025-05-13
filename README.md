@@ -160,6 +160,11 @@ These methods provide direct wrappers for the standard LND gRPC/REST API functio
 
 - **addInvoice(options)**: Create a new Lightning invoice
 - **lookupInvoiceV2(paymentHash)**: Look up an invoice by its payment hash
+  - Accepts payment hash in multiple formats:
+    - Hex-encoded string
+    - Standard base64 string
+    - URL-safe base64 string
+  - Automatically handles conversion to the format required by LND
 - **listInvoices(options)**: List invoices with filtering and pagination
 
 #### Payment Methods

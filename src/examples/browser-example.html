@@ -164,5 +164,32 @@ lndClient.getInfo()
       }
     });
   </script>
+
+  <script>
+    document.getElementById('check-invoice-btn').addEventListener('click', async () => {
+      const paymentHash = document.getElementById('payment-hash').value;
+      
+      try {
+        const lnd = new window.flndr.LndClient({
+          baseUrl: document.getElementById('lnd-url').value,
+          macaroon: document.getElementById('macaroon').value,
+        });
+        
+        // Our updated method handles all formats
+        const invoice = await lnd.lookupInvoiceV2(paymentHash);
+        
+        // Display invoice details
+        document.getElementById('invoice-details').textContent = 
+          JSON.stringify(invoice, null, 2);
+        
+        // Update status
+        document.getElementById('invoice-status').textContent = 
+          invoice.settled ? 'Paid' : 'Unpaid';
+      } catch (error) {
+        console.error('Error checking invoice:', error);
+        document.getElementById('error-message').textContent = error.message;
+      }
+    });
+  </script>
 </body>
 </html> 

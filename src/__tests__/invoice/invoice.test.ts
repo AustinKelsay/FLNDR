@@ -93,10 +93,9 @@ describe('LndClient - Invoice Methods', () => {
     };
     
     it('should return invoice details using URL-safe base64', async () => {
-      // Setup axios mock
-      mockedAxios.get.mockImplementation((url, config) => {
-        if (url === '/v2/invoices/lookup' && 
-            config?.params?.payment_hash) {
+      // Setup axios mock with a more flexible implementation that matches URL patterns
+      mockedAxios.get.mockImplementation((url) => {
+        if (url.startsWith('/v2/invoices/lookup')) {
           return Promise.resolve({ data: mockResponse });
         }
         return Promise.reject(new Error('Not found'));
@@ -106,10 +105,11 @@ describe('LndClient - Invoice Methods', () => {
       const rHashStr = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2';
       const result = await lndClient.lookupInvoiceV2(rHashStr);
       
-      // Assertions
-      expect(mockedAxios.get).toHaveBeenCalledWith('/v2/invoices/lookup', expect.objectContaining({
-        params: { payment_hash: expect.any(String) }
-      }));
+      // Assertions - now checking for the URL pattern rather than exact params
+      expect(mockedAxios.get).toHaveBeenCalled();
+      const calledUrl = mockedAxios.get.mock.calls[0][0];
+      expect(calledUrl).toContain('/v2/invoices/lookup');
+      expect(calledUrl).toContain('payment_hash=');
       expect(result).toEqual(mockResponse);
     });
     
