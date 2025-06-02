@@ -12,10 +12,10 @@ FLNDR is a TypeScript-based wrapper for the LND REST API, designed to simplify L
 - Automatic network detection
 - **Browser compatible** - works in both Node.js and browser environments
 
-## Installation
+## Installation - Coming Soon
 
 ```bash
-npm install flndr
+npm install flndr # coming soon
 ```
 
 ## Configuration
