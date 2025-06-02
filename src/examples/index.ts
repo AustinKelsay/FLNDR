@@ -8,126 +8,126 @@
 // Import dotenv to load environment variables
 import 'dotenv/config';
 
-// Import example functions
-import getInfoExample from './info/getInfo';
+import { LndClient } from '../index';
+import { getLndConfigWithFallback } from '../utils/config';
+
+// Info examples
 import channelBalanceExample from './info/channelBalance';
+import getInfoExample from './info/getInfo';
 import networkDetectionExample from './info/networkDetectionExample';
+
+// Invoice examples
 import addInvoiceExample from './invoice/addInvoice';
-import lookupInvoiceExample from './invoice/lookupInvoice';
 import listInvoicesExample from './invoice/listInvoices';
-import listPaymentsExample from './payments/listPayments';
-import sendPaymentExample from './payments/sendPayment';
+import lookupInvoiceExample from './invoice/lookupInvoice';
+
+// Payment examples
 import decodePayReqExample from './payments/decodePayReq';
 import estimateRouteFeeExample from './payments/estimateRouteFee';
-// Transaction history example
-import transactionHistoryExample from './custom/listTransactionHistory';
+import listPaymentsExample from './payments/listPayments';
+import sendPaymentExample from './payments/sendPayment';
+
 // Import the mocked streaming example (we cannot run it here because it creates long-running connections)
 import mockedStreamingExample from './monitoring/mockedStreamingExample';
 
 /**
- * Run all examples in sequence
+ * Main entry point for running examples.
+ * Run with: `npm run examples <exampleName>` or `npm run examples all`
+ * Add new examples to the switch statement below.
  */
 async function runExamples() {
-  console.log('='.repeat(10));
-  console.log('FLNDR SDK Examples');
-  console.log('='.repeat(10));
-  
-  try {
-    // Check if valid environment variables are set
-    const envVars = ['LND_REST_API_URL', 'LND_MACAROON_PATH'];
-    const missingVars = envVars.filter(varName => !process.env[varName]);
-    
-    if (missingVars.length > 0) {
-      console.warn('\n⚠️ Warning: Some environment variables are not set:');
-      console.warn(missingVars.join(', '));
-      console.warn('Examples will use fallback values for demonstration purposes.');
-      console.warn('For production use, please set these variables in a .env file.\n');
-    } else {
-      console.log('✅ Environment variables successfully loaded.\n');
+  const exampleName = process.argv[2] || 'all';
+  const lndClient = new LndClient(getLndConfigWithFallback());
+
+  console.log(`Running example: ${exampleName === 'all' ? 'all examples' : exampleName}\n`);
+
+  // Helper function to run an example and catch errors
+  const run = async (name: string, exampleFn: (client: LndClient) => Promise<void>) => {
+    if (exampleName === 'all' || exampleName === name) {
+      try {
+        console.log(`--- Running ${name} example ---`);
+        await exampleFn(lndClient);
+        console.log(`--- ${name} example completed ---\n`);
+      } catch (error) {
+        console.error(`Error in ${name} example:`, error);
+      }
     }
-    
+  };
+
+  // Dynamically run examples based on the argument
+  switch (exampleName.toLowerCase()) {
     // Info examples
-    console.log('\n1️⃣ Running Info Examples:');
-    console.log('-'.repeat(10));
-    await getInfoExample();
-    
-    console.log('\n-'.repeat(10));
-    await channelBalanceExample();
-    
-    console.log('\n-'.repeat(10));
-    await networkDetectionExample();
-    
-    // Receiving examples
-    console.log('\n\n2️⃣ Running Receiving Examples:');
-    console.log('-'.repeat(10));
-    await addInvoiceExample();
-    
-    console.log('\n-'.repeat(10));
-    await lookupInvoiceExample();
-    
-    console.log('\n-'.repeat(10));
-    await listInvoicesExample();
-    
+    case 'balance':
+    case 'channelbalance':
+      await run('channelBalance', channelBalanceExample);
+      break;
+    case 'info':
+    case 'getinfo':
+      await run('getInfo', getInfoExample);
+      break;
+    case 'network':
+    case 'networkdetection':
+      await run('networkDetection', networkDetectionExample);
+      break;
+    // Invoice examples
+    case 'addinvoice':
+      await run('addInvoice', addInvoiceExample);
+      break;
+    case 'listinvoices':
+      await run('listInvoices', listInvoicesExample);
+      break;
+    case 'lookupinvoice':
+      await run('lookupInvoice', lookupInvoiceExample);
+      break;
     // Payment examples
-    console.log('\n\n3️⃣ Running Payment Examples:');
-    console.log('-'.repeat(10));
-    await listPaymentsExample();
-    
-    console.log('\n-'.repeat(10));
-    await decodePayReqExample();
-    
-    console.log('\n-'.repeat(10));
-    await estimateRouteFeeExample();
-    
-    console.log('\n-'.repeat(10));
-    await sendPaymentExample();
-    
-    // Transaction History examples
-    console.log('\n\n4️⃣ Running Transaction History Example:');
-    console.log('-'.repeat(10));
-    await transactionHistoryExample();
-    
+    case 'decodepayreq':
+      await run('decodePayReq', decodePayReqExample);
+      break;
+    case 'estimateroutefee':
+      await run('estimateRouteFee', estimateRouteFeeExample);
+      break;
+    case 'listpayments':
+      await run('listPayments', listPaymentsExample);
+      break;
+    case 'sendpayment':
+      await run('sendPayment', sendPaymentExample);
+      break;
     // Monitoring examples
-    console.log('\n\n5️⃣ About Monitoring Examples:');
-    console.log('-'.repeat(10));
-    console.log('The streaming examples create long-running WebSocket connections');
-    console.log('and are designed to be run separately. To run them, use:');
-    console.log('npx ts-node src/examples/monitoring/streamingExample.ts');
-    console.log('\nThese examples demonstrate:');
-    console.log('- Subscribing to all invoices (subscribeInvoices)');
-    console.log('- Tracking a specific invoice (subscribeSingleInvoice)');
-    console.log('- Tracking a specific payment (trackPayment)');
-    console.log('- Tracking all payments (trackPaymentV2)');
-    
-    // Ask if the user wants to run the mocked streaming example
-    console.log('\nWould you like to run the mocked streaming example?');
-    console.log('It simulates WebSocket events without requiring an active LND node.');
-    console.log('Enter "y" and press Enter to run it, or press Enter to skip.');
-    
-    // For simplicity, we'll just run it directly in this example
-    const runMockedExample = process.env.RUN_MOCKED_STREAMING === 'true';
-    
-    if (runMockedExample) {
-      console.log('\nRunning mocked streaming example...\n');
-      await mockedStreamingExample();
-    } else {
-      console.log('\nSkipping mocked streaming example.');
-      console.log('You can run it separately with:');
-      console.log('npx ts-node src/examples/monitoring/mockedStreamingExample.ts');
-    }
-    
-    console.log('\n='.repeat(10));
-    console.log('✅ All examples completed successfully!');
-    console.log('='.repeat(10));
-  } catch (error) {
-    console.error('\n❌ Error running examples:', error);
-    process.exit(1);
+    case 'mockedstreaming': // This one can be run directly
+      await run('mockedStreaming', mockedStreamingExample);
+      break;
+    case 'all':
+      // Info
+      await run('channelBalance', channelBalanceExample);
+      await run('getInfo', getInfoExample);
+      await run('networkDetection', networkDetectionExample);
+      // Invoices
+      await run('addInvoice', addInvoiceExample);
+      await run('listInvoices', listInvoicesExample);
+      await run('lookupInvoice', lookupInvoiceExample);
+      // Payments
+      await run('decodePayReq', decodePayReqExample);
+      await run('estimateRouteFee', estimateRouteFeeExample);
+      await run('listPayments', listPaymentsExample);
+      await run('sendPayment', sendPaymentExample);
+      // Monitoring
+      await run('mockedStreaming', mockedStreamingExample);
+      console.log('Note: Real streaming examples (subscribeInvoices, trackPayment) need to be run manually via `npm run monitor streaming`.');
+      break;
+    default:
+      console.log(
+        `Unknown example: ${exampleName}. `, 
+        `Available examples: balance, info, network, addinvoice, listinvoices, lookupinvoice, decodepayreq, estimateroutefee, listpayments, sendpayment, mockedstreaming, all`
+      );
+      console.log('See also: `npm run monitor` for streaming examples.');
   }
+
+  // Close all connections when done (important for streaming examples)
+  lndClient.closeAllConnections();
 }
 
-// Run the examples if this file is executed directly
-if (require.main === module) {
-  runExamples().catch(console.error);
-}
+runExamples().catch(error => {
+  console.error('Unhandled error running examples:', error);
+});
 
 export default runExamples; 
